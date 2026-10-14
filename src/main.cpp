@@ -1,6 +1,8 @@
 #include "constants.hpp"
 #include "mesh_loader.hpp"
+#include <Eigen/Core>
 #include <Eigen/Eigen>
+#include <Eigen/Eigenvalues>
 #include <iostream>
 
 struct BBox {
@@ -13,6 +15,22 @@ struct DiffTetShapeFunctions {
   Vertex g1;
   Vertex g2;
   Vertex g3;
+
+  Vertex &operator[](size_t i) {
+    switch (i) {
+    case 0:
+      return g0;
+    case 1:
+      return g1;
+    case 2:
+      return g2;
+    case 3:
+      return g3;
+    default:
+      std::cerr << "Wrong value provided " << i << std::endl;
+      assert(false);
+    }
+  }
 };
 
 static double computeArea(TetrahedralMesh &mesh, size_t tetId) {
@@ -37,7 +55,8 @@ static double computeArea(TetrahedralMesh &mesh, size_t tetId) {
   return volume;
 }
 
-static auto computeDiffShapeFunctions(TetrahedralMesh &mesh, size_t tetId) {
+static DiffTetShapeFunctions computeDiffShapeFunctions(TetrahedralMesh &mesh,
+                                                       size_t tetId) {
   double data[3][3] = {-999};
   Tetrahedron &currentTet = mesh.tets[tetId];
   Vertex &p0 = mesh.vertices[currentTet[0]];
@@ -96,9 +115,44 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  size_t nbTets = mesh.tets.size();
+  size_t nbConstraints = mesh.amountInternalFace;
+
+  // the one more is for the constraint that sets one vertex coordinate
+  size_t N = nbTets * 12 + nbConstraints + 1;
+  Eigen::SparseMatrix<double> system(N, N);
+
+  const size_t nbCoeffsPerTet = AMOUNT_SHAPE_FUNCTION * AMOUNT_SHAPE_FUNCTION;
+  const size_t nbCoeffPerConstraint = 4;
+  system.reserve(nbCoeffsPerTet * nbTets +
+                 nbCoeffPerConstraint * nbConstraints);
+
+  Eigen::VectorX<double> knowns;
+
   for (size_t i = 0; i < mesh.tets.size(); i++) {
     auto shapeFunctions = computeDiffShapeFunctions(mesh, i);
+    Eigen::Matrix3d frame;
+    frame.col(0) << 1, 0, 0; // u
+    frame.col(1) << 0, 1, 0; // v
+    frame.col(2) << 0, 0, 1; // w
+
+    size_t base = i * AMOUNT_SHAPE_FUNCTION;
+    for (size_t di = 0; di < AMOUNT_SHAPE_FUNCTION; di++) {
+      for (size_t dj = 0; dj < AMOUNT_SHAPE_FUNCTION; dj++) {
+        double coeff = shapeFunctions[di].transpose() * shapeFunctions[dj];
+        system.coeffRef(base + di, base + dj) = coeff;
+      }
+    }
   }
+  system.makeCompressed();
+
+  // Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+  // solver.analyzePattern(system);
+  // solver.factorize(system);
+  // if (solver.info() != Eigen::Success) {
+  //   std::cout << "Cannot solve" << "\n";
+  // }
+  // Eigen::VectorXd solution = solver.solve(knowns);
 
   return EXIT_SUCCESS;
 }

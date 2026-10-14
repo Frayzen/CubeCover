@@ -39,6 +39,9 @@ static vtkSmartPointer<vtkUnstructuredGrid> readGrid(const std::string &path) {
   return nullptr;
 }
 
+#include <algorithm>
+#include <map>
+
 bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   auto grid = readGrid(path);
   if (!grid) {
@@ -55,14 +58,13 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
     return false;
   }
 
-  // Validate all cells first. Do not partially return a mixed mesh.
+  // Validate all cells first
   for (vtkIdType cellId = 0; cellId < grid->GetNumberOfCells(); ++cellId) {
     const int cellType = grid->GetCellType(cellId);
     if (cellType != VTK_TETRA) {
       std::cerr << "Error: cell " << cellId << " has VTK cell type " << cellType
                 << "; expected VTK_TETRA (" << VTK_TETRA << ").\n";
-      continue;
-      // return false;
+      return false;
     }
 
     vtkCell *cell = grid->GetCell(cellId);
@@ -86,6 +88,10 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
 
   candidate.tets.reserve(static_cast<std::size_t>(grid->GetNumberOfCells()));
 
+  // Map to keep track of unique faces: sorted face vertex IDs -> list of
+  // adjacent cell IDs
+  std::map<std::array<vtkIdType, 3>, std::array<vtkIdType, 2>> faceMap;
+
   for (vtkIdType cellId = 0; cellId < grid->GetNumberOfCells(); ++cellId) {
     vtkCell *cell = grid->GetCell(cellId);
     Tetrahedron tet{};
@@ -101,6 +107,30 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
     }
 
     candidate.tets.push_back(tet);
+
+    // Extract the 4 faces of the tetrahedron and register cell adjacency
+    candidate.amountInternalFace = 0;
+    for (int faceId = 0; faceId < 4; ++faceId) {
+      vtkCell *face = cell->GetFace(faceId);
+      if (face != nullptr && face->GetNumberOfPoints() == 3) {
+        std::array<vtkIdType, 3> f_keys = {
+            face->GetPointId(0), face->GetPointId(1), face->GetPointId(2)};
+        // Sort vertex IDs so the key is independent of traversal order
+        std::sort(f_keys.begin(), f_keys.end());
+        if (faceMap.find(f_keys) == faceMap.end())
+          faceMap[f_keys][0] = cellId;
+        else {
+          candidate.amountInternalFace++;
+          faceMap[f_keys][1] = cellId;
+        }
+      }
+    }
+  }
+
+  // Populate candidate faces from the aggregated map
+  candidate.faces.reserve(faceMap.size());
+  for (const auto &[f_keys, adjacentCells] : faceMap) {
+    candidate.faces.push_back(Face{f_keys, adjacentCells});
   }
 
   output = std::move(candidate);
