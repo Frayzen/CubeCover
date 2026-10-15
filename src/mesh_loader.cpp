@@ -1,4 +1,5 @@
 #include "mesh_loader.hpp"
+#include "constants.hpp"
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -60,7 +61,7 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
 
   // Validate all cells first
   for (vtkIdType cellId = 0; cellId < grid->GetNumberOfCells(); ++cellId) {
-    const int cellType = grid->GetCellType(cellId);
+    const size_t cellType = grid->GetCellType(cellId);
     if (cellType != VTK_TETRA) {
       std::cerr << "Error: cell " << cellId << " has VTK cell type " << cellType
                 << "; expected VTK_TETRA (" << VTK_TETRA << ").\n";
@@ -76,6 +77,7 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   }
 
   TetrahedralMesh candidate;
+  candidate.amountInternalFace = 0;
   vtkPoints *points = grid->GetPoints();
   candidate.vertices.reserve(
       static_cast<std::size_t>(grid->GetNumberOfPoints()));
@@ -90,17 +92,17 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
 
   // Map to keep track of unique faces: sorted face vertex IDs -> list of
   // adjacent cell IDs
-  std::map<std::array<vtkIdType, 3>, std::array<vtkIdType, 2>> faceMap;
+  std::map<std::array<vtkIdType, 3>, std::array<ssize_t, 2>> faceMap;
 
   for (vtkIdType cellId = 0; cellId < grid->GetNumberOfCells(); ++cellId) {
     vtkCell *cell = grid->GetCell(cellId);
     Tetrahedron tet{};
 
-    for (int localId = 0; localId < 4; ++localId) {
+    for (size_t localId = 0; localId < 4; ++localId) {
       const vtkIdType pointId = cell->GetPointId(localId);
       if (pointId < 0 || pointId >= grid->GetNumberOfPoints()) {
         std::cerr << "Error: tetrahedron " << cellId
-                  << " references an invalid point index.\n";
+                  << " references an invalid posize_t index.\n";
         return false;
       }
       tet[static_cast<std::size_t>(localId)] = pointId;
@@ -109,17 +111,19 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
     candidate.tets.push_back(tet);
 
     // Extract the 4 faces of the tetrahedron and register cell adjacency
-    candidate.amountInternalFace = 0;
-    for (int faceId = 0; faceId < 4; ++faceId) {
+    for (size_t faceId = 0; faceId < cell->GetNumberOfFaces(); ++faceId) {
       vtkCell *face = cell->GetFace(faceId);
       if (face != nullptr && face->GetNumberOfPoints() == 3) {
         std::array<vtkIdType, 3> f_keys = {
             face->GetPointId(0), face->GetPointId(1), face->GetPointId(2)};
-        // Sort vertex IDs so the key is independent of traversal order
+
+        // the key is independent of traversal order
         std::sort(f_keys.begin(), f_keys.end());
-        if (faceMap.find(f_keys) == faceMap.end())
+
+        if (faceMap.find(f_keys) == faceMap.end()) {
           faceMap[f_keys][0] = cellId;
-        else {
+          faceMap[f_keys][1] = UNDEFINED_ADJACENT_CELL;
+        } else {
           candidate.amountInternalFace++;
           faceMap[f_keys][1] = cellId;
         }

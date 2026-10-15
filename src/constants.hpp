@@ -3,12 +3,16 @@
 
 #include <cstddef>
 #include <limits>
+#include <sys/types.h>
 
 const double mind = std::numeric_limits<double>::min();
 const double maxd = std::numeric_limits<double>::max();
 
 const size_t DIMENSION = 3;
-const size_t TET_NODE_COUNT = 4;
-const size_t AMOUNT_SHAPE_FUNCTION = 4;
+const size_t NB_NODE_PER_FACE = 3;
+const size_t NB_NODE_PER_TET = 4;
+const size_t NB_UNKNOWN_PER_TET = NB_NODE_PER_TET * DIMENSION;
+
+const ssize_t UNDEFINED_ADJACENT_CELL = -1;
 
 #endif

@@ -60,7 +60,7 @@ static DiffTetShapeFunctions computeDiffShapeFunctions(TetrahedralMesh &mesh,
   double data[3][3] = {-999};
   Tetrahedron &currentTet = mesh.tets[tetId];
   Vertex &p0 = mesh.vertices[currentTet[0]];
-  for (size_t i = 1; i < TET_NODE_COUNT; i++) {
+  for (size_t i = 1; i < NB_NODE_PER_TET; i++) {
     Vertex &pi = mesh.vertices[currentTet[i]];
     for (size_t coord = 0; coord < DIMENSION; coord++)
       data[i - 1][coord] = pi[coord] - p0[coord];
@@ -116,34 +116,77 @@ int main(int argc, char *argv[]) {
   }
 
   size_t nbTets = mesh.tets.size();
-  size_t nbConstraints = mesh.amountInternalFace;
+  size_t nbConstraints = mesh.amountInternalFace * NB_NODE_PER_FACE;
 
   // the one more is for the constraint that sets one vertex coordinate
-  size_t N = nbTets * 12 + nbConstraints + 1;
+  size_t N = nbTets * NB_UNKNOWN_PER_TET + nbConstraints + 1;
   Eigen::SparseMatrix<double> system(N, N);
+  system.reserve(nbTets * NB_UNKNOWN_PER_TET + nbConstraints);
 
-  const size_t nbCoeffsPerTet = AMOUNT_SHAPE_FUNCTION * AMOUNT_SHAPE_FUNCTION;
-  const size_t nbCoeffPerConstraint = 4;
-  system.reserve(nbCoeffsPerTet * nbTets +
-                 nbCoeffPerConstraint * nbConstraints);
+  Eigen::VectorX<double> knowns(N);
 
-  Eigen::VectorX<double> knowns;
+  // Laplace matrix
 
   for (size_t i = 0; i < mesh.tets.size(); i++) {
-    auto shapeFunctions = computeDiffShapeFunctions(mesh, i);
-    Eigen::Matrix3d frame;
-    frame.col(0) << 1, 0, 0; // u
-    frame.col(1) << 0, 1, 0; // v
-    frame.col(2) << 0, 0, 1; // w
+    DiffTetShapeFunctions shapeFuncs = computeDiffShapeFunctions(mesh, i);
+    Eigen::Matrix3d frame;   // TODO set the frame not constant
+    frame.col(0) << 1, 0, 0; // U
+    frame.col(1) << 0, 1, 0; // V
+    frame.col(2) << 0, 0, 1; // W
 
-    size_t base = i * AMOUNT_SHAPE_FUNCTION;
-    for (size_t di = 0; di < AMOUNT_SHAPE_FUNCTION; di++) {
-      for (size_t dj = 0; dj < AMOUNT_SHAPE_FUNCTION; dj++) {
-        double coeff = shapeFunctions[di].transpose() * shapeFunctions[dj];
-        system.coeffRef(base + di, base + dj) = coeff;
+    for (size_t nodeId = 0; nodeId < NB_NODE_PER_FACE; nodeId++) {
+      size_t base = i * NB_UNKNOWN_PER_TET + nodeId * NB_NODE_PER_TET;
+      for (size_t di = 0; di < NB_NODE_PER_TET; di++) {
+        for (size_t dj = 0; dj < NB_NODE_PER_TET; dj++) {
+          double coeff = shapeFuncs[di].transpose() * shapeFuncs[dj];
+          system.coeffRef(base + di, base + dj) = coeff;
+          knowns(base + di) = shapeFuncs[di].transpose() * frame.col(nodeId);
+        }
       }
     }
   }
+
+  // Constraints
+
+  const size_t constraintOffset = nbTets * NB_UNKNOWN_PER_TET;
+  size_t constraintId = 0;
+  for (size_t faceId = 0; faceId < mesh.faces.size(); faceId++) {
+    Face &face = mesh.faces[faceId];
+    if (face.adjacentCells[1] == UNDEFINED_ADJACENT_CELL)
+      continue;
+    // Here, we assume that Pi is Identity
+    for (size_t nodeId = 0; nodeId < NB_NODE_PER_FACE; nodeId++) {
+      size_t row = constraintOffset + constraintId;
+      constraintId++;
+      size_t colTetT = face.adjacentCells[0] * NB_UNKNOWN_PER_TET + nodeId;
+      size_t colTetS = face.adjacentCells[1] * NB_UNKNOWN_PER_TET + nodeId;
+
+      knowns(row) = 0;
+
+      // C
+      system.coeffRef(row, colTetT) = 1;
+      system.coeffRef(row, colTetS) = -1; // TODO apply Pi
+      // C^t
+      system.coeffRef(colTetT + nodeId, row) = 1;
+      system.coeffRef(colTetS + nodeId, row) = -1; // TODO apply Pi
+
+      if (nodeId == 0) { // Enforce f(u_t) - Pi(f(u_s)) = 0
+        continue;
+      } else { // Enforce f(u_t) - f(v_t) - Pi(f(u_s) - f(v_s)) = 0
+        system.coeffRef(row, colTetT - 1) = -1;
+        system.coeffRef(row, colTetS - 1) = 1; // TODO apply Pi
+        // C^t
+        system.coeffRef(colTetT - 1, row) = -1;
+        system.coeffRef(colTetS - 1, row) = 1; // TODO apply Pi
+      }
+    }
+  }
+  assert(constraintId == nbConstraints);
+
+  // Boundary conditions
+  system.coeffRef(nbTets * NB_UNKNOWN_PER_TET + nbConstraints, 0) = 1;
+  knowns(nbTets * NB_UNKNOWN_PER_TET + nbConstraints) = 0;
+
   system.makeCompressed();
 
   // Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
