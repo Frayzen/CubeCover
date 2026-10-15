@@ -1,6 +1,8 @@
 #include "constants.hpp"
 #include "mesh_loader.hpp"
 #include <Eigen/Core>
+#include <Eigen/SparseLU>
+
 #include <Eigen/Eigen>
 #include <Eigen/Eigenvalues>
 #include <iostream>
@@ -139,7 +141,7 @@ int main(int argc, char *argv[]) {
       for (size_t di = 0; di < NB_NODE_PER_TET; di++) {
         for (size_t dj = 0; dj < NB_NODE_PER_TET; dj++) {
           double coeff = shapeFuncs[di].transpose() * shapeFuncs[dj];
-          system.coeffRef(base + di, base + dj) = coeff;
+          system.insert(base + di, base + dj) = coeff;
           knowns(base + di) = shapeFuncs[di].transpose() * frame.col(nodeId);
         }
       }
@@ -164,38 +166,40 @@ int main(int argc, char *argv[]) {
       knowns(row) = 0;
 
       // C
-      system.coeffRef(row, colTetT) = 1;
-      system.coeffRef(row, colTetS) = -1; // TODO apply Pi
+      system.insert(row, colTetT) = 1;
+      system.insert(row, colTetS) = -1; // TODO apply Pi
       // C^t
-      system.coeffRef(colTetT + nodeId, row) = 1;
-      system.coeffRef(colTetS + nodeId, row) = -1; // TODO apply Pi
+      system.insert(colTetT + nodeId, row) = 1;
+      system.insert(colTetS + nodeId, row) = -1; // TODO apply Pi
 
       if (nodeId == 0) { // Enforce f(u_t) - Pi(f(u_s)) = 0
         continue;
       } else { // Enforce f(u_t) - f(v_t) - Pi(f(u_s) - f(v_s)) = 0
-        system.coeffRef(row, colTetT - 1) = -1;
-        system.coeffRef(row, colTetS - 1) = 1; // TODO apply Pi
+        system.insert(row, colTetT - 1) = -1;
+        system.insert(row, colTetS - 1) = 1; // TODO apply Pi
         // C^t
-        system.coeffRef(colTetT - 1, row) = -1;
-        system.coeffRef(colTetS - 1, row) = 1; // TODO apply Pi
+        system.insert(colTetT - 1, row) = -1;
+        system.insert(colTetS - 1, row) = 1; // TODO apply Pi
       }
     }
   }
   assert(constraintId == nbConstraints);
 
   // Boundary conditions
-  system.coeffRef(nbTets * NB_UNKNOWN_PER_TET + nbConstraints, 0) = 1;
+  system.insert(nbTets * NB_UNKNOWN_PER_TET + nbConstraints, 0) = 1;
   knowns(nbTets * NB_UNKNOWN_PER_TET + nbConstraints) = 0;
 
+  std::cout << system << std::endl;
+  std::cout << knowns << std::endl;
   system.makeCompressed();
 
-  // Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
-  // solver.analyzePattern(system);
-  // solver.factorize(system);
-  // if (solver.info() != Eigen::Success) {
-  //   std::cout << "Cannot solve" << "\n";
-  // }
-  // Eigen::VectorXd solution = solver.solve(knowns);
+  Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+  solver.analyzePattern(system);
+  solver.factorize(system);
+  if (solver.info() != Eigen::Success)
+    std::cout << "MESSAGE :" << solver.lastErrorMessage() << std::endl;
+  else
+    Eigen::VectorXd x = solver.solve(knowns);
 
   return EXIT_SUCCESS;
 }
