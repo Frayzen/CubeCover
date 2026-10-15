@@ -68,22 +68,23 @@ static DiffTetShapeFunctions computeDiffShapeFunctions(TetrahedralMesh &mesh,
       data[i - 1][coord] = pi[coord] - p0[coord];
   }
   Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::ColMajor>> mat(data[0]);
-  auto inv = mat.inverse();
+  auto invT = mat.inverse();
 
   DiffTetShapeFunctions res{
       .g0 = {},
-      .g1 = inv.row(0),
-      .g2 = inv.row(1),
-      .g3 = inv.row(2),
+      .g1 = invT.row(0),
+      .g2 = invT.row(1),
+      .g3 = invT.row(2),
   };
-  res.g0 = Vertex(1, 1, 1) - res.g1 - res.g2 - res.g3;
+  res.g0 = -(res.g1 + res.g2 + res.g3);
 
-  // std::cout << "=============================" << std::endl;
+  std::cout << "=============================" << std::endl;
+  std::cout << "GOT mat " << std::endl << mat << std::endl;
   // std::cout << "GOT AREA " << computeArea(mesh, tetId) << std::endl;
-  // std::cout << res.g0 << std::endl;
-  // std::cout << res.g1 << std::endl;
-  // std::cout << res.g2 << std::endl;
-  // std::cout << res.g3 << std::endl;
+  std::cout << "g0 " << std::endl << res.g0 << std::endl << std::endl;
+  std::cout << "g1 " << std::endl << res.g1 << std::endl << std::endl;
+  std::cout << "g2 " << std::endl << res.g2 << std::endl << std::endl;
+  std::cout << "g3 " << std::endl << res.g3 << std::endl << std::endl;
   return res;
 }
 
@@ -118,10 +119,11 @@ int main(int argc, char *argv[]) {
   }
 
   size_t nbTets = mesh.tets.size();
-  size_t nbConstraints = mesh.amountInternalFace * NB_NODE_PER_FACE;
+  size_t nbConstraints = mesh.amountInternalFace * NB_NODE_PER_FACE * DIMENSION;
 
   // the one more is for the constraint that sets one vertex coordinate
-  size_t N = nbTets * NB_UNKNOWN_PER_TET + nbConstraints + 1;
+  size_t bcAmount = DIMENSION;
+  size_t N = nbTets * NB_UNKNOWN_PER_TET + nbConstraints + bcAmount;
   Eigen::SparseMatrix<double> system(N, N);
   system.reserve(nbTets * NB_UNKNOWN_PER_TET + nbConstraints);
 
@@ -158,47 +160,64 @@ int main(int argc, char *argv[]) {
       continue;
     // Here, we assume that Pi is Identity
     for (size_t nodeId = 0; nodeId < NB_NODE_PER_FACE; nodeId++) {
-      size_t row = constraintOffset + constraintId;
-      constraintId++;
-      size_t colTetT = face.adjacentCells[0] * NB_UNKNOWN_PER_TET + nodeId;
-      size_t colTetS = face.adjacentCells[1] * NB_UNKNOWN_PER_TET + nodeId;
+      for (size_t coord = 0; coord < DIMENSION; coord++) {
+        size_t row = constraintOffset + constraintId;
+        constraintId++;
+        size_t colTetT = face.adjacentCells[0] * NB_UNKNOWN_PER_TET +
+                         coord * NB_NODE_PER_TET + nodeId;
+        size_t colTetS = face.adjacentCells[1] * NB_UNKNOWN_PER_TET +
+                         coord * NB_NODE_PER_TET + nodeId;
 
-      knowns(row) = 0;
+        knowns(row) = 0;
 
-      // C
-      system.insert(row, colTetT) = 1;
-      system.insert(row, colTetS) = -1; // TODO apply Pi
-      // C^t
-      system.insert(colTetT + nodeId, row) = 1;
-      system.insert(colTetS + nodeId, row) = -1; // TODO apply Pi
-
-      if (nodeId == 0) { // Enforce f(u_t) - Pi(f(u_s)) = 0
-        continue;
-      } else { // Enforce f(u_t) - f(v_t) - Pi(f(u_s) - f(v_s)) = 0
-        system.insert(row, colTetT - 1) = -1;
-        system.insert(row, colTetS - 1) = 1; // TODO apply Pi
+        // C
+        system.insert(row, colTetT) = 1;
+        system.insert(row, colTetS) = -1; // TODO apply Pi
         // C^t
-        system.insert(colTetT - 1, row) = -1;
-        system.insert(colTetS - 1, row) = 1; // TODO apply Pi
+        system.insert(colTetT, row) = 1;
+        system.insert(colTetS, row) = -1; // TODO apply Pi
+
+        if (nodeId == 0) { // Enforce f(u_t) - Pi(f(u_s)) = 0
+          continue;
+        } else { // Enforce f(u_t) - f(v_t) - Pi(f(u_s) - f(v_s)) = 0
+          system.insert(row, colTetT - 1) = -1;
+          system.insert(row, colTetS - 1) = 1; // TODO apply Pi
+          // C^t
+          system.insert(colTetT - 1, row) = -1;
+          system.insert(colTetS - 1, row) = 1; // TODO apply Pi
+        }
       }
     }
   }
   assert(constraintId == nbConstraints);
 
   // Boundary conditions
-  system.insert(nbTets * NB_UNKNOWN_PER_TET + nbConstraints, 0) = 1;
-  knowns(nbTets * NB_UNKNOWN_PER_TET + nbConstraints) = 0;
+  for (size_t coord = 0; coord < DIMENSION; coord++) {
+    system.insert(nbTets * NB_UNKNOWN_PER_TET + nbConstraints + coord,
+                  coord * NB_NODE_PER_TET) = 1;
+    // C^t
+    system.insert(coord * NB_NODE_PER_TET,
+                  nbTets * NB_UNKNOWN_PER_TET + nbConstraints + coord) = 1;
+    knowns(nbTets * NB_UNKNOWN_PER_TET + nbConstraints) = 0;
+  }
 
   std::cout << system << std::endl;
   std::cout << knowns << std::endl;
   system.makeCompressed();
 
+  for (int j = 0; j < system.outerSize(); ++j) {
+    if (system.innerVector(j).nonZeros() == 0)
+      std::cout << "empty column: " << j << std::endl;
+  }
   Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
   solver.analyzePattern(system);
   solver.factorize(system);
-  if (solver.info() != Eigen::Success)
+  if (solver.info() != Eigen::Success) {
+
+    Eigen::MatrixXd dense = Eigen::MatrixXd(system);
+    std::cout << dense.determinant() << std::endl;
     std::cout << "MESSAGE :" << solver.lastErrorMessage() << std::endl;
-  else
+  } else
     Eigen::VectorXd x = solver.solve(knowns);
 
   return EXIT_SUCCESS;
