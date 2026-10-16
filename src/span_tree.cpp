@@ -1,33 +1,48 @@
+
 #include "span_tree.hpp"
 #include "constants.hpp"
+#include "mesh_loader.hpp"
+
 #include <stack>
+#include <stdexcept>
+#include <vector>
 
-void convertToSpanTree(TetrahedralMesh &mesh) {
+std::vector<size_t> convertToSpanTree(TetrahedralMesh &mesh) {
+  const size_t n = mesh.tets.size();
+  std::vector<bool> visited(n, false);
+  std::vector<size_t> spanTree(mesh.amountInternalFace);
+  size_t curSpanTreeFace = 0;
+  std::stack<size_t> pending;
+  const size_t root = 0;
+  pending.push(root);
+  visited[root] = true;
 
-  std::vector<bool> tetsPushed(mesh.tets.size());
-  std::fill(tetsPushed.begin(), tetsPushed.end(), false);
-  std::stack<size_t> tetsToProcess;
-  tetsToProcess.push(0);
-  tetsPushed[0] = true;
+  while (!pending.empty()) {
+    const size_t curTet = pending.top();
+    pending.pop();
 
-  while (!tetsToProcess.empty()) {
-    size_t curTet = tetsToProcess.top();
-    tetsToProcess.pop();
+    for (size_t faceId : mesh.tetToFaces[curTet]) {
+      Face &face = mesh.faces[faceId];
 
-    for (auto face : mesh.tetToFaces[curTet]) {
-      Face &f = mesh.faces[face];
-      size_t parentTet = f.adjacentCells[0];
-      if (parentTet != curTet) {
-        if (!tetsPushed[parentTet])
-          std::swap(f.adjacentCells[0], f.adjacentCells[1]);
-      }
-      size_t childTet = f.adjacentCells[1];
-      if (childTet != curTet && childTet != UNDEFINED_ELEMENT &&
-          !tetsPushed[childTet]) {
-        tetsToProcess.push(childTet);
-        tetsPushed[childTet] = true;
-      }
-      tetsPushed[curTet] = true;
+      size_t a = face.adjacentCells[0];
+      size_t b = face.adjacentCells[1];
+      if (b == UNDEFINED_ELEMENT) // Boundary face
+        continue;
+
+      size_t neighbor = a == curTet ? b : a;
+      if (neighbor == curTet)
+        throw std::runtime_error("Inconsistent tetToFaces adjacency");
+      if (visited[neighbor])
+        continue;
+
+      spanTree[curSpanTreeFace++] = faceId;
+      face.adjacentCells[0] = curTet;
+      face.adjacentCells[1] = neighbor;
+
+      visited[neighbor] = true;
+      pending.push(neighbor);
     }
   }
+  spanTree.resize(curSpanTreeFace);
+  return spanTree;
 }

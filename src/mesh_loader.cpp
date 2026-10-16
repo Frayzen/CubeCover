@@ -115,20 +115,31 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
     // Extract the 4 faces of the tetrahedron and register cell adjacency
     for (size_t faceId = 0; faceId < cell->GetNumberOfFaces(); ++faceId) {
       vtkCell *face = cell->GetFace(faceId);
-      if (face != nullptr && face->GetNumberOfPoints() == 3) {
-        std::array<vtkIdType, 3> f_keys = {
-            face->GetPointId(0), face->GetPointId(1), face->GetPointId(2)};
 
-        // the key is independent of traversal order
-        std::sort(f_keys.begin(), f_keys.end());
+      if (face == nullptr || face->GetNumberOfPoints() != 3) {
+        std::cerr << "Error: invalid face in tetrahedron " << cellId << '\n';
+        return false;
+      }
 
-        if (faceMap.find(f_keys) == faceMap.end()) {
-          faceMap[f_keys][0] = cellId;
-          faceMap[f_keys][1] = UNDEFINED_ELEMENT;
-        } else {
-          candidate.amountInternalFace++;
-          faceMap[f_keys][1] = cellId;
+      std::array<vtkIdType, 3> f_keys = {
+          face->GetPointId(0), face->GetPointId(1), face->GetPointId(2)};
+
+      // the key is independent of traversal order
+      std::sort(f_keys.begin(), f_keys.end());
+
+      auto it = faceMap.find(f_keys);
+      if (it == faceMap.end()) {
+        std::array<ssize_t, 2> value{cellId, UNDEFINED_ELEMENT};
+        faceMap.emplace(f_keys, value);
+      } else {
+        if (it->second[1] != UNDEFINED_ELEMENT) {
+          std::cerr << "Error: non-manifold face shared by "
+                    << "more than two tetrahedra.\n";
+          return false;
         }
+
+        it->second[1] = cellId;
+        candidate.amountInternalFace++;
       }
     }
   }

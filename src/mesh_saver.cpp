@@ -15,8 +15,8 @@
 #include <string>
 #include <vector>
 
-void saveMesh(const std::vector<Eigen::Vector3d> &vertices,
-              const std::string &filename) {
+void saveMeshGmsh(const std::vector<Eigen::Vector3d> &vertices,
+                  const std::string &filename) {
   if (vertices.size() % 4 != 0) {
     throw std::invalid_argument(
         "The number of vertices must be a multiple of 4.");
@@ -53,5 +53,37 @@ void saveMesh(const std::vector<Eigen::Vector3d> &vertices,
 
   if (!out) {
     throw std::runtime_error("Failed to write mesh: " + filename);
+  }
+}
+
+void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
+                 const std::string &filename) {
+  if (vertices.size() % 4 != 0) {
+    throw std::invalid_argument(
+        "The number of vertices must be a multiple of 4.");
+  }
+
+  auto points = vtkSmartPointer<vtkPoints>::New();
+  auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
+
+  // Each tetrahedron has its own four independent vertices.
+  for (const auto &v : vertices) {
+    points->InsertNextPoint(v.x(), v.y(), v.z());
+  }
+
+  grid->SetPoints(points);
+
+  for (vtkIdType i = 0; i < static_cast<vtkIdType>(vertices.size()); i += 4) {
+    vtkIdType ids[4] = {i, i + 1, i + 2, i + 3};
+    grid->InsertNextCell(VTK_TETRA, 4, ids);
+  }
+
+  auto writer = vtkSmartPointer<vtkUnstructuredGridWriter>::New();
+  writer->SetFileName(filename.c_str());
+  writer->SetInputData(grid);
+  writer->SetFileTypeToBinary(); // Or SetFileTypeToASCII()
+
+  if (writer->Write() != 1) {
+    throw std::runtime_error("Failed to write VTK mesh to " + filename);
   }
 }

@@ -1,48 +1,51 @@
 #include "trilaterate.hpp"
-#include <cmath>
+#include <Eigen/Dense>
+#include <stdexcept>
 
-std::tuple<Eigen::Vector3d, Eigen::Vector3d>
-trilaterate3D(const Eigen::Vector3d nodes[3], double distances[3]) {
-  auto &p1 = nodes[0];
-  auto &p2 = nodes[1];
-  auto &p3 = nodes[2];
+static Vertex getNormal(const Vertex plane[3]) {
+  const Vertex u = plane[1] - plane[0];
+  const Vertex v = plane[2] - plane[0];
+  const Vertex cross = u.cross(v);
 
-  auto &r1 = distances[0];
-  auto &r2 = distances[1];
-  auto &r3 = distances[2];
-
-  Eigen::Vector3d p21 = p2 - p1;
-  double d = p21.norm();
-  if (d < 1e-9) {
-    throw std::runtime_error("p1 and p2 cannot be the same point.");
-  }
-  Eigen::Vector3d ex = p21 / d;
-
-  Eigen::Vector3d p31 = p3 - p1;
-  double i = ex.dot(p31);
-
-  Eigen::Vector3d aux = p31 - i * ex;
-  double j = aux.norm();
-  if (j < 1e-9) {
-    throw std::runtime_error("p1, p2, and p3 are collinear.");
-  }
-  Eigen::Vector3d ey = aux / j;
-  Eigen::Vector3d ez = ex.cross(ey);
-
-  // 2. Solve for x and y in the local coordinate system
-  double x = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d);
-  double y = (r1 * r1 - r3 * r3 + i * i + j * j - 2.0 * i * x) / (2.0 * j);
-
-  // 3. Solve for z^2
-  double z_squared = r1 * r1 - x * x - y * y;
-
-  if (z_squared < -1e-9) {
-    throw std::runtime_error("No real intersection");
+  const double scale = u.norm() * v.norm();
+  if (scale == 0.0 || cross.norm() < 1e-12 * scale) {
+    throw std::invalid_argument("Degenerate triangle in tipProject");
   }
 
-  double z = (z_squared > 0.0) ? std::sqrt(z_squared) : 0.0;
+  return cross.normalized();
+}
 
-  Eigen::Vector3d sol1 = p1 + x * ex + y * ey + z * ez;
-  Eigen::Vector3d sol2 = p1 + x * ex + y * ey - z * ez;
-  return {sol1, sol2};
+Vertex tipProject(const Vertex oldFace[3], const Vertex newFace[3],
+                  Vertex oldTip) {
+  const Vertex nOld = getNormal(oldFace);
+  const Vertex nNew = getNormal(newFace);
+
+  const double height = (oldTip - oldFace[0]).dot(nOld);
+  const Vertex projected = oldTip - height * nOld;
+
+  const Vertex e0 = oldFace[1] - oldFace[0];
+  const Vertex e1 = oldFace[2] - oldFace[0];
+  const Vertex q = projected - oldFace[0];
+
+  Eigen::Matrix2d G;
+  G << e0.dot(e0), e0.dot(e1), e0.dot(e1), e1.dot(e1);
+
+  Eigen::Vector2d rhs(q.dot(e0), q.dot(e1));
+
+  if (std::abs(G.determinant()) < 1e-24) {
+    throw std::invalid_argument("Degenerate old face in tipProject");
+  }
+
+  const Eigen::Vector2d uv = G.ldlt().solve(rhs);
+
+  const double w0 = 1.0 - uv[0] - uv[1];
+  const double w1 = uv[0];
+  const double w2 = uv[1];
+
+  const Vertex projectedNew =
+      w0 * newFace[0] + w1 * newFace[1] + w2 * newFace[2];
+
+  const double orientation = nOld.dot(nNew) >= 0.0 ? 1.0 : -1.0;
+
+  return projectedNew + orientation * height * nNew;
 }

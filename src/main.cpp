@@ -16,6 +16,15 @@ struct BBox {
   Vertex min;
 };
 
+static size_t findLocalVertex(const Tetrahedron &tet, size_t globalVertex) {
+  for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
+    if (tet[i] == globalVertex)
+      return i;
+  }
+
+  throw std::runtime_error("Face vertex not found in adjacent tetrahedron");
+}
+
 struct DiffTetShapeFunctions {
   Vertex g0;
   Vertex g1;
@@ -39,7 +48,7 @@ struct DiffTetShapeFunctions {
   }
 };
 
-static double computeArea(TetrahedralMesh &mesh, size_t tetId) {
+static double computeVolume(TetrahedralMesh &mesh, size_t tetId) {
   Tetrahedron &currentTet = mesh.tets[tetId];
 
   Vertex &p0 = mesh.vertices[currentTet[0]];
@@ -63,32 +72,30 @@ static double computeArea(TetrahedralMesh &mesh, size_t tetId) {
 
 static DiffTetShapeFunctions computeDiffShapeFunctions(TetrahedralMesh &mesh,
                                                        size_t tetId) {
-  double data[3][3] = {-999};
-  Tetrahedron &currentTet = mesh.tets[tetId];
-  Vertex &p0 = mesh.vertices[currentTet[0]];
-  for (size_t i = 1; i < NB_NODE_PER_TET; i++) {
-    Vertex &pi = mesh.vertices[currentTet[i]];
-    for (size_t coord = 0; coord < DIMENSION; coord++)
-      data[i - 1][coord] = pi[coord] - p0[coord];
-  }
-  Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::ColMajor>> mat(data[0]);
-  auto invT = mat.inverse();
+  const auto &tet = mesh.tets[tetId];
+  const auto &p0 = mesh.vertices[tet[0]];
 
-  DiffTetShapeFunctions res{
-      .g0 = {},
-      .g1 = invT.row(0),
-      .g2 = invT.row(1),
-      .g3 = invT.row(2),
-  };
+  Eigen::Matrix3d D;
+  for (int j = 1; j < 4; ++j) {
+    const auto &p = mesh.vertices[tet[j]];
+    for (int k = 0; k < 3; ++k) {
+      D(k, j - 1) = p[k] - p0[k];
+    }
+  }
+
+  const double det = D.determinant();
+  if (std::abs(det) < 1e-12) {
+    throw std::runtime_error("Degenerate tetrahedron");
+  }
+
+  const Eigen::Matrix3d invT = D.inverse().transpose();
+
+  DiffTetShapeFunctions res;
+  res.g1 = invT.col(0);
+  res.g2 = invT.col(1);
+  res.g3 = invT.col(2);
   res.g0 = -(res.g1 + res.g2 + res.g3);
 
-  // std::cout << "=============================" << std::endl;
-  // std::cout << "GOT mat " << std::endl << mat << std::endl;
-  // std::cout << "GOT AREA " << computeArea(mesh, tetId) << std::endl;
-  // std::cout << "g0 " << std::endl << res.g0 << std::endl << std::endl;
-  // std::cout << "g1 " << std::endl << res.g1 << std::endl << std::endl;
-  // std::cout << "g2 " << std::endl << res.g2 << std::endl << std::endl;
-  // std::cout << "g3 " << std::endl << res.g3 << std::endl << std::endl;
   return res;
 }
 
@@ -102,7 +109,7 @@ int main(int argc, char *argv[]) {
   if (!loadTetrahedralMesh(argv[1], mesh)) {
     return EXIT_FAILURE;
   }
-  convertToSpanTree(mesh);
+  std::vector<size_t> spanTree = convertToSpanTree(mesh);
 
   std::cout << "Loaded tetrahedral mesh successfully.\n"
             << "Vertices: " << mesh.vertices.size() << '\n'
@@ -124,10 +131,9 @@ int main(int argc, char *argv[]) {
   }
 
   size_t nbTets = mesh.tets.size();
-  size_t nbConstraints =
-      mesh.amountInternalFace * (NB_NODE_PER_FACE + 1) * DIMENSION;
+  size_t nbConstraints = mesh.amountInternalFace * NB_NODE_PER_FACE * DIMENSION;
 
-  size_t bcAmount = DIMENSION;
+  size_t bcAmount = DIMENSION * 2;
   size_t N = nbTets * NB_UNKNOWN_PER_TET + nbConstraints + bcAmount;
 
   // The unknowns are in the shape [u1 u2 ... v1 v2 ... w1 w2 ... u5 u6 ... v5
@@ -135,7 +141,7 @@ int main(int argc, char *argv[]) {
   Eigen::SparseMatrix<double> system(N, N);
   system.reserve(nbTets * NB_UNKNOWN_PER_TET + nbConstraints);
 
-  Eigen::VectorX<double> knowns(N);
+  Eigen::VectorX<double> knowns = Eigen::VectorXd::Zero(N);
 
   // Laplace matrix
 
@@ -146,14 +152,23 @@ int main(int argc, char *argv[]) {
     frame.col(1) << 0, 1, 0; // V
     frame.col(2) << 0, 0, 1; // W
 
-    for (size_t nodeId = 0; nodeId < NB_NODE_PER_FACE; nodeId++) {
-      size_t base = i * NB_UNKNOWN_PER_TET + nodeId * NB_NODE_PER_TET;
-      for (size_t di = 0; di < NB_NODE_PER_TET; di++) {
-        for (size_t dj = 0; dj < NB_NODE_PER_TET; dj++) {
-          double coeff = shapeFuncs[di].transpose() * shapeFuncs[dj];
-          system.insert(base + di, base + dj) = coeff;
-          knowns(base + di) = shapeFuncs[di].transpose() * frame.col(nodeId);
+    const double vol = computeVolume(mesh, i);
+
+    for (size_t coord = 0; coord < DIMENSION; ++coord) {
+      const size_t base = i * NB_UNKNOWN_PER_TET + coord * NB_NODE_PER_TET;
+
+      for (size_t di = 0; di < NB_NODE_PER_TET; ++di) {
+        const size_t row = base + di;
+
+        for (size_t dj = 0; dj < NB_NODE_PER_TET; ++dj) {
+          const size_t col = base + dj;
+
+          const double coeff = vol * shapeFuncs[di].dot(shapeFuncs[dj]);
+
+          system.coeffRef(row, col) += coeff;
         }
+
+        knowns(row) += vol * shapeFuncs[di].dot(frame.col(coord));
       }
     }
   }
@@ -167,41 +182,49 @@ int main(int argc, char *argv[]) {
     if (face.adjacentCells[1] == UNDEFINED_ELEMENT)
       continue;
 
+    size_t tetTId = face.adjacentCells[0];
+    Tetrahedron &tetT = mesh.tets[tetTId];
+    size_t tetSId = face.adjacentCells[1];
+    Tetrahedron &tetS = mesh.tets[tetSId];
     // Here, we assume that Pi is Identity
     for (size_t coord = 0; coord < DIMENSION; coord++) {
-      size_t colTetT =
-          face.adjacentCells[0] * NB_UNKNOWN_PER_TET + coord * NB_NODE_PER_TET;
-      size_t colTetS =
-          face.adjacentCells[1] * NB_UNKNOWN_PER_TET + coord * NB_NODE_PER_TET;
+      size_t colTetT = tetTId * NB_UNKNOWN_PER_TET + coord * NB_NODE_PER_TET;
+      size_t colTetS = tetSId * NB_UNKNOWN_PER_TET + coord * NB_NODE_PER_TET;
       for (size_t nodeId = 0; nodeId < NB_NODE_PER_FACE; nodeId++) {
+        size_t node = face.vertices[nodeId];
+        size_t nextId = (nodeId + 1) % NB_NODE_PER_FACE;
+        size_t next = face.vertices[nextId];
         size_t row = constraintOffset + constraintId;
         constraintId++;
 
         // Enforce f(u_t) - f(v_t) - Pi(f(u_s) - f(v_s)) = 0
         knowns(row) = 0;
-        size_t nextId = (nodeId + 1) % 4;
         // C
-        system.insert(row, colTetT + nodeId) = 1;
-        system.insert(row, colTetS + nodeId) = -1; // TODO apply Pi
-        system.insert(row, colTetT + nextId) = -1;
-        system.insert(row, colTetS + nextId) = 1; // TODO apply Pi
+        system.insert(row, colTetT + findLocalVertex(tetT, node)) = 1;
+        system.insert(row, colTetS + findLocalVertex(tetS, node)) =
+            -1; // TODO apply Pi
+        system.insert(row, colTetT + findLocalVertex(tetT, next)) = -1;
+        system.insert(row, colTetS + findLocalVertex(tetS, next)) =
+            1; // TODO apply Pi
         // C^t
-        system.insert(colTetT + nodeId, row) = 1;
-        system.insert(colTetS + nodeId, row) = -1; // TODO apply Pi
-        system.insert(colTetT + nextId, row) = -1;
-        system.insert(colTetS + nextId, row) = 1; // TODO apply Pi
+        system.insert(colTetT + findLocalVertex(tetT, node), row) = 1;
+        system.insert(colTetS + findLocalVertex(tetS, node), row) =
+            -1; // TODO apply Pi
+        system.insert(colTetT + findLocalVertex(tetT, next), row) = -1;
+        system.insert(colTetS + findLocalVertex(tetS, next), row) =
+            1; // TODO apply Pi
       }
 
-      // Enforce f(u_t)
-      size_t row = constraintOffset + constraintId;
-      constraintId++;
-      knowns(row) = 0;
-      // C
-      system.insert(row, colTetT) = 1;
-      system.insert(row, colTetS) = -1; // TODO apply Pi
-      // C^t
-      system.insert(colTetT, row) = 1;
-      system.insert(colTetS, row) = -1; // TODO apply Pi
+      // // Enforce f(u_t)
+      // size_t row = constraintOffset + constraintId;
+      // constraintId++;
+      // knowns(row) = 0;
+      // // C
+      // system.insert(row, colTetT) = 1;
+      // system.insert(row, colTetS) = -1; // TODO apply Pi
+      // // C^t
+      // system.insert(colTetT, row) = 1;
+      // system.insert(colTetS, row) = -1; // TODO apply Pi
     }
   }
   assert(constraintId == nbConstraints);
@@ -210,10 +233,16 @@ int main(int argc, char *argv[]) {
   for (size_t coord = 0; coord < DIMENSION; coord++) {
     system.insert(nbTets * NB_UNKNOWN_PER_TET + nbConstraints + coord,
                   coord * NB_NODE_PER_TET) = 1;
+    system.insert(nbTets * NB_UNKNOWN_PER_TET + nbConstraints + coord,
+                  coord * NB_NODE_PER_TET + 1) = 1;
     // C^t
     system.insert(coord * NB_NODE_PER_TET,
                   nbTets * NB_UNKNOWN_PER_TET + nbConstraints + coord) = 1;
+    system.insert(coord * NB_NODE_PER_TET + 1,
+                  nbTets * NB_UNKNOWN_PER_TET + nbConstraints + coord) = 1;
+
     knowns(nbTets * NB_UNKNOWN_PER_TET + nbConstraints) = 0;
+    knowns(nbTets * NB_UNKNOWN_PER_TET + nbConstraints + 1) = 0;
   }
 
   // std::cout << system << std::endl;
@@ -273,13 +302,25 @@ int main(int argc, char *argv[]) {
     assert(false);
   };
 
-  for (size_t faceId = 0; faceId < mesh.faces.size(); faceId++) {
+  std::vector<Eigen::Vector3d> vertices(mesh.tets.size() * NB_NODE_PER_TET);
+  for (size_t i = 0; i < mesh.tets.size(); i++) {
+    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
+      vertices[NB_NODE_PER_TET * i + j] = getLocalVertices(i, j);
+  }
+  saveMeshVtk(vertices, "nospanning.vtk");
+  // std::cout << "RESULT " << std::endl << result << std::endl;
+
+  std::vector<bool> include(mesh.tets.size());
+  std::fill(include.begin(), include.end(), false);
+  for (size_t faceId : spanTree) {
     Face &face = mesh.faces[faceId];
     auto faceNodes = face.vertices;
     if (face.adjacentCells[1] == UNDEFINED_ELEMENT)
       continue;
     size_t parent = face.adjacentCells[0];
     size_t child = face.adjacentCells[1];
+    include[parent] = true;
+    include[child] = true;
 
     // Find the child tip
     auto childNodes = mesh.tets[child];
@@ -294,28 +335,31 @@ int main(int argc, char *argv[]) {
     assert(childTipLocalId < NB_NODE_PER_TET);
     Vertex childTip(getLocalVertices(child, childTipLocalId));
 
-    double distToTip[NB_NODE_PER_FACE];
-    Vertex faceNodePos[NB_NODE_PER_FACE];
+    Vertex oldFace[NB_NODE_PER_FACE];
+    Vertex newFace[NB_NODE_PER_FACE];
 
     for (size_t i = 0; i < NB_NODE_PER_FACE; i++) {
       size_t node = faceNodes[i];
       Vertex fp = getGlobalVertices(parent, node);
       Vertex fc = getGlobalVertices(child, node);
-      distToTip[i] = (fc - childTip).norm();
+      oldFace[i] = fc;
+      newFace[i] = fp;
       setGlobalVertices(child, node, fp);
-      faceNodePos[i] = fp;
     }
 
-    auto [newTipPos1, newTipPos2] = trilaterate3D(faceNodePos, distToTip);
-    setLocalVertices(child, childTipLocalId, newTipPos1);
+    auto newTip = tipProject(oldFace, newFace, childTip);
+    setLocalVertices(child, childTipLocalId, newTip);
   }
 
-  std::vector<Eigen::Vector3d> vertices(mesh.tets.size() * NB_NODE_PER_TET);
+  vertices.clear();
   for (size_t i = 0; i < mesh.tets.size(); i++) {
+    if (!include[i])
+      continue;
     for (size_t j = 0; j < NB_NODE_PER_TET; j++)
-      vertices[NB_NODE_PER_TET * i + j] = getLocalVertices(i, j);
+      vertices.push_back(getLocalVertices(i, j));
   }
-  saveMesh(vertices);
+  saveMeshGmsh(vertices);
+  saveMeshVtk(vertices);
 
   return EXIT_SUCCESS;
 }
