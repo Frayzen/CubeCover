@@ -11,6 +11,7 @@
 #include <vector>
 
 using Tetrahedron = std::array<vtkIdType, 4>;
+
 struct Face {
   std::array<vtkIdType, 3> vertices;
   std::array<ssize_t, 2> adjacentCells;
@@ -20,6 +21,7 @@ struct TetrahedralMesh {
   std::vector<Vertex> vertices;
   std::vector<Tetrahedron> tets;
   std::vector<Face> faces;
+  std::vector<std::array<ssize_t, 4>> tetToFaces;
   size_t amountInternalFace;
 };
 

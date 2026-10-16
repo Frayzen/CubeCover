@@ -109,6 +109,8 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
     }
 
     candidate.tets.push_back(tet);
+    candidate.tetToFaces.push_back({UNDEFINED_ELEMENT, UNDEFINED_ELEMENT,
+                                    UNDEFINED_ELEMENT, UNDEFINED_ELEMENT});
 
     // Extract the 4 faces of the tetrahedron and register cell adjacency
     for (size_t faceId = 0; faceId < cell->GetNumberOfFaces(); ++faceId) {
@@ -122,7 +124,7 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
 
         if (faceMap.find(f_keys) == faceMap.end()) {
           faceMap[f_keys][0] = cellId;
-          faceMap[f_keys][1] = UNDEFINED_ADJACENT_CELL;
+          faceMap[f_keys][1] = UNDEFINED_ELEMENT;
         } else {
           candidate.amountInternalFace++;
           faceMap[f_keys][1] = cellId;
@@ -132,10 +134,25 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   }
 
   // Populate candidate faces from the aggregated map
+  size_t tetCompleteCounter = 0;
   candidate.faces.reserve(faceMap.size());
   for (const auto &[f_keys, adjacentCells] : faceMap) {
     candidate.faces.push_back(Face{f_keys, adjacentCells});
+    for (size_t tetId : adjacentCells) {
+      if (tetId == UNDEFINED_ELEMENT)
+        continue;
+      auto &faces = candidate.tetToFaces[tetId];
+      size_t i = 0;
+      while (i < faces.size() && faces[i] != UNDEFINED_ELEMENT) {
+        i++;
+      }
+      assert(i < faces.size());
+      faces[i] = candidate.faces.size() - 1;
+      if (i == faces.size() - 1)
+        tetCompleteCounter++;
+    }
   }
+  assert(tetCompleteCounter == candidate.tets.size());
 
   output = std::move(candidate);
   return true;

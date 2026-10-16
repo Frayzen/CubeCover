@@ -13,6 +13,6 @@ const size_t NB_NODE_PER_FACE = 3;
 const size_t NB_NODE_PER_TET = 4;
 const size_t NB_UNKNOWN_PER_TET = NB_NODE_PER_TET * DIMENSION;
 
-const ssize_t UNDEFINED_ADJACENT_CELL = -1;
+const ssize_t UNDEFINED_ELEMENT = -1;
 
 #endif
