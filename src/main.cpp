@@ -1,5 +1,6 @@
 #include "constants.hpp"
 #include "mesh_loader.hpp"
+#include "mesh_saver.hpp"
 #include "span_tree.hpp"
 #include "trilaterate.hpp"
 #include <Eigen/Core>
@@ -223,7 +224,7 @@ int main(int argc, char *argv[]) {
                            Eigen::Lower | Eigen::Upper>
       solver;
 
-  solver.setMaxIterations(10000);
+  solver.setMaxIterations(1000);
   solver.setTolerance(1e-8);
   solver.compute(system);
 
@@ -308,6 +309,13 @@ int main(int argc, char *argv[]) {
     auto [newTipPos1, newTipPos2] = trilaterate3D(faceNodePos, distToTip);
     setLocalVertices(child, childTipLocalId, newTipPos1);
   }
+
+  std::vector<Eigen::Vector3d> vertices(mesh.tets.size() * NB_NODE_PER_TET);
+  for (size_t i = 0; i < mesh.tets.size(); i++) {
+    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
+      vertices[NB_NODE_PER_TET * i + j] = getLocalVertices(i, j);
+  }
+  saveMesh(vertices);
 
   return EXIT_SUCCESS;
 }
