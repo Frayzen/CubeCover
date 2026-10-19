@@ -1,0 +1,97 @@
+#include "frame_field.hpp"
+#include "constants.hpp"
+
+#include <Eigen/Eigen>
+#include <array>
+#include <iostream>
+#include <random>
+
+void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames) {
+
+  std::array<Eigen::Matrix3d, 24> permutations;
+  int count = 0;
+
+  for (int p0 = 0; p0 < 3; ++p0) {
+    for (int p1 = 0; p1 < 3; ++p1) {
+      if (p1 == p0)
+        continue;
+
+      for (int p2 = 0; p2 < 3; ++p2) {
+        if (p2 == p0 || p2 == p1)
+          continue;
+
+        for (int s0 : {-1, 1}) {
+          for (int s1 : {-1, 1}) {
+            for (int s2 : {-1, 1}) {
+              Eigen::Matrix3d P = Eigen::Matrix3d::Zero();
+              P(p0, 0) = s0;
+              P(p1, 1) = s1;
+              P(p2, 2) = s2;
+
+              if (std::lround(P.determinant()) == 1)
+                permutations[count++] = P;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // std::mt19937 rng(std::random_device{}());
+  std::mt19937 rng(42);
+  std::uniform_int_distribution<int> dist(0, 23);
+
+  for (Eigen::Matrix3d &frame : frames) {
+    frame = permutations[dist(rng)];
+  }
+}
+
+Eigen::Matrix3i computePiST(Eigen::Matrix3d frameS, Eigen::Matrix3d frameT) {
+  // std::cout << "FRAME S " << std::endl << frameS << std::endl;
+  // std::cout << "FRAME T " << std::endl << frameS << std::endl;
+  double bestError = std::numeric_limits<double>::infinity();
+  Eigen::Matrix3i bestPi = Eigen::Matrix3i::Identity();
+
+  for (int p0 = 0; p0 < DIMENSION; ++p0) {
+    for (int p1 = 0; p1 < DIMENSION; ++p1) {
+      if (p1 == p0)
+        continue;
+      for (int p2 = 0; p2 < DIMENSION; ++p2) {
+        if (p2 == p0 || p2 == p1)
+          continue;
+
+        Eigen::Matrix3i P = Eigen::Matrix3i::Zero();
+        P(p0, 0) = 1;
+        P(p1, 1) = 1;
+        P(p2, 2) = 1;
+
+        // Enumerate all sign combinations.
+        for (int s0 : {-1, 1}) {
+          for (int s1 : {-1, 1}) {
+            for (int s2 : {-1, 1}) {
+              Eigen::Matrix3i Pi = P;
+              Pi.col(0) *= s0;
+              Pi.col(1) *= s1;
+              Pi.col(2) *= s2;
+
+              // Keep only orientation-preserving matchings.
+              if (Pi.determinant() != 1)
+                continue;
+
+              const Eigen::Matrix3d diff = frameS - frameT * Pi.cast<double>();
+
+              const double error = diff.squaredNorm();
+
+              if (error < bestError) {
+                bestError = error;
+                bestPi = Pi;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  // std::cout << "BEST PI" << std::endl << bestPi << std::endl;
+  return bestPi;
+}

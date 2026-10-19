@@ -18,7 +18,7 @@ static Vertex getNormal(const Vertex plane[3]) {
 Vertex tipProject(const Vertex oldFace[3], const Vertex newFace[3],
                   Vertex oldTip) {
   const Vertex nOld = getNormal(oldFace);
-  const Vertex nNew = getNormal(newFace);
+  Vertex nNew = getNormal(newFace);
 
   const double height = (oldTip - oldFace[0]).dot(nOld);
   const Vertex projected = oldTip - height * nOld;
@@ -45,7 +45,5 @@ Vertex tipProject(const Vertex oldFace[3], const Vertex newFace[3],
   const Vertex projectedNew =
       w0 * newFace[0] + w1 * newFace[1] + w2 * newFace[2];
 
-  const double orientation = nOld.dot(nNew) >= 0.0 ? 1.0 : -1.0;
-
-  return projectedNew + orientation * height * nNew;
+  return projectedNew + height * nNew;
 }
