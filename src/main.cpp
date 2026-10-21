@@ -111,7 +111,7 @@ int main(int argc, char *argv[]) {
   }
   std::vector<size_t> spanTree = convertToSpanTree(mesh);
   std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
-  fillRandomPermutations(frames);
+  fillRandomPermutations(frames, mesh);
 
   std::cout << "Loaded tetrahedral mesh successfully.\n"
             << "Vertices: " << mesh.vertices.size() << '\n'
@@ -302,7 +302,7 @@ int main(int argc, char *argv[]) {
     for (size_t j = 0; j < NB_NODE_PER_TET; j++)
       vertices[NB_NODE_PER_TET * i + j] = getLocalVertices(i, j);
   }
-  saveMeshVtk(vertices, "nospanning.vtk");
+  // saveMeshVtk(vertices, "nospanning.vtk");
   std::cout << "SAVED NO SPANNING" << std::endl;
 
   std::vector<bool> include(mesh.tets.size());
@@ -366,8 +366,15 @@ int main(int argc, char *argv[]) {
     for (size_t j = 0; j < NB_NODE_PER_TET; j++)
       vertices.push_back(getLocalVertices(i, j));
   }
-  saveMeshGmsh(vertices);
-  saveMeshVtk(vertices);
+  saveMeshVtk(vertices, frames);
+
+  vertices.clear();
+  for (size_t i = 0; i < mesh.tets.size(); i++) {
+    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
+      vertices.push_back(mesh.vertices[mesh.tets[i][j]]);
+  }
+
+  saveMeshVtk(vertices, frames, "input.vtk");
 
   return EXIT_SUCCESS;
 }

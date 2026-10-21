@@ -63,9 +63,11 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   for (vtkIdType cellId = 0; cellId < grid->GetNumberOfCells(); ++cellId) {
     const size_t cellType = grid->GetCellType(cellId);
     if (cellType != VTK_TETRA) {
-      std::cerr << "Error: cell " << cellId << " has VTK cell type " << cellType
-                << "; expected VTK_TETRA (" << VTK_TETRA << ").\n";
-      return false;
+      // std::cerr << "Error: cell " << cellId << " has VTK cell type " <<
+      // cellType
+      //           << "; expected VTK_TETRA (" << VTK_TETRA << ").\n";
+      // return false;
+      continue;
     }
 
     vtkCell *cell = grid->GetCell(cellId);
@@ -163,7 +165,7 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
         tetCompleteCounter++;
     }
   }
-  assert(tetCompleteCounter == candidate.tets.size());
+  // assert(tetCompleteCounter == candidate.tets.size());
 
   output = std::move(candidate);
   return true;

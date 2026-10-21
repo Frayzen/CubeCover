@@ -1,12 +1,15 @@
 #include "frame_field.hpp"
 #include "constants.hpp"
+#include "mesh_loader.hpp"
 
 #include <Eigen/Eigen>
 #include <array>
+#include <cmath>
 #include <iostream>
 #include <random>
 
-void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames) {
+void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames,
+                            TetrahedralMesh &mesh) {
 
   std::array<Eigen::Matrix3d, 24> permutations;
   int count = 0;
@@ -38,11 +41,35 @@ void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames) {
   }
 
   // std::mt19937 rng(std::random_device{}());
-  std::mt19937 rng(42);
-  std::uniform_int_distribution<int> dist(0, 23);
+  // std::mt19937 rng(42);
+  // std::uniform_int_distribution<int> dist(0, 23);
 
-  for (Eigen::Matrix3d &frame : frames) {
-    frame = permutations[dist(rng)];
+  for (size_t tet = 0; tet < mesh.tets.size(); tet++) {
+    Vertex bary = Vertex::Zero();
+    for (size_t i = 0; i < NB_NODE_PER_TET; i++) {
+      bary += mesh.vertices[mesh.tets[tet][i]];
+    }
+    bary /= NB_NODE_PER_TET;
+
+    if (bary.x() < 0.15 && bary.y() < 0.15) {
+      // case bot left
+      frames[tet].col(0) << 1, 0, 0;
+      frames[tet].col(1) << 0, 1, 0;
+      frames[tet].col(2) << 0, 0, 1;
+    } else if (bary.y() > 0.15 && bary.x() < bary.y()) {
+      // case top left
+      double theta = M_PI / 3;
+      frames[tet].col(0) << cos(theta), sin(theta), 0;
+      frames[tet].col(1) << -sin(theta), cos(theta), 0;
+      frames[tet].col(2) << 0, 0, 1;
+    } else {
+      // case bot right
+      double theta = M_PI / 6;
+      frames[tet].col(0) << cos(theta), sin(theta), 0;
+      frames[tet].col(1) << -sin(theta), cos(theta), 0;
+      frames[tet].col(2) << 0, 0, 1;
+    }
+    // auto frame = permutations[dist(rng)];
   }
 }
 
