@@ -2,7 +2,7 @@
 #include "frame_field.hpp"
 #include "mesh_loader.hpp"
 #include "mesh_saver.hpp"
-#include "span_tree.hpp"
+#include "process.hpp"
 #include "trilaterate.hpp"
 #include <Eigen/Core>
 #include <Eigen/IterativeLinearSolvers>
@@ -10,11 +10,31 @@
 #include <Eigen/Eigen>
 #include <Eigen/Eigenvalues>
 #include <iostream>
+#include <unordered_set>
 
 struct BBox {
   Vertex max;
   Vertex min;
 };
+
+static size_t getPrincipalAxis(Vertex vector) {
+  size_t axisAlignBest;
+  double signBest;
+  double measureBest = 0;
+  for (size_t coord = 0; coord < DIMENSION; coord++) {
+    Vertex unit = Vertex::Zero();
+    unit[coord] = 1;
+    double dotProduct = vector.dot(unit);
+    double cur = std::abs(dotProduct);
+    const double CONSISTENCY_GAP = 10e-3;
+    if (measureBest + CONSISTENCY_GAP < cur) {
+      measureBest = cur;
+      axisAlignBest = coord;
+      signBest = cur;
+    }
+  }
+  return axisAlignBest;
+}
 
 static size_t findLocalVertex(const Tetrahedron &tet, size_t globalVertex) {
   for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
@@ -109,9 +129,26 @@ int main(int argc, char *argv[]) {
   if (!loadTetrahedralMesh(argv[1], mesh)) {
     return EXIT_FAILURE;
   }
-  std::vector<size_t> spanTree = convertToSpanTree(mesh);
-  std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
-  fillRandomPermutations(frames, mesh);
+
+  size_t nbTets = mesh.tets.size();
+  size_t nbConstraints =
+      mesh.amountInternalFace * (NB_NODE_PER_FACE - 1) * DIMENSION;
+
+  size_t N = nbTets * NB_UNKNOWN_PER_TET + nbConstraints;
+  CubeCoverParameters params(mesh, N);
+
+  std::vector<Eigen::Matrix3d> frames = params.frames;
+  fillFrameField(frames, mesh);
+
+  std::vector<Eigen::Vector3d> vertices(mesh.tets.size() * NB_NODE_PER_TET);
+
+  vertices.clear();
+  for (size_t i = 0; i < mesh.tets.size(); i++) {
+    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
+      vertices.push_back(mesh.vertices[mesh.tets[i][j]]);
+  }
+
+  saveMeshVtk(vertices, frames, "input.vtk");
 
   std::cout << "Loaded tetrahedral mesh successfully.\n"
             << "Vertices: " << mesh.vertices.size() << '\n'
@@ -132,18 +169,13 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  size_t nbTets = mesh.tets.size();
-  size_t nbConstraints = mesh.amountInternalFace * NB_NODE_PER_FACE * DIMENSION;
-
-  size_t bcAmount = DIMENSION;
-  size_t N = nbTets * NB_UNKNOWN_PER_TET + nbConstraints + bcAmount;
-
   // The unknowns are in the shape [u1 u2 ... v1 v2 ... w1 w2 ... u5 u6 ... v5
   // v6 ... w5 w6 ... deltas ... ]
-  Eigen::SparseMatrix<double> system(N, N);
-  system.reserve(nbTets * NB_UNKNOWN_PER_TET + nbConstraints);
+  std::cout << "BEGIN SYSTEM BUILD" << std::endl;
 
-  Eigen::VectorX<double> knowns = Eigen::VectorXd::Zero(N);
+  Eigen::SparseMatrix<double> &system = params.system;
+  Eigen::VectorX<double> &knowns = params.knowns;
+  system.reserve(nbTets * NB_UNKNOWN_PER_TET + nbConstraints);
 
   // Laplace matrix
 
@@ -206,7 +238,7 @@ int main(int argc, char *argv[]) {
       auto [coordS, sign] = findCoord(pi, coord);
 
       size_t colTetS = tetSId * NB_UNKNOWN_PER_TET + coordS * NB_NODE_PER_TET;
-      for (size_t nodeId = 0; nodeId < NB_NODE_PER_FACE; nodeId++) {
+      for (size_t nodeId = 0; nodeId < (NB_NODE_PER_FACE - 1); nodeId++) {
         size_t node = face.vertices[nodeId];
         size_t nextId = (nodeId + 1) % NB_NODE_PER_FACE;
         size_t next = face.vertices[nextId];
@@ -230,55 +262,27 @@ int main(int argc, char *argv[]) {
   }
   assert(constraintId == nbConstraints);
 
-  // Boundary conditions
-  const size_t bcOffset = nbTets * NB_UNKNOWN_PER_TET + nbConstraints;
+  // // Boundary conditions
+  // const size_t bcOffset = nbTets * NB_UNKNOWN_PER_TET + nbConstraints;
 
-  for (size_t coord = 0; coord < DIMENSION; ++coord) {
-    const size_t row = bcOffset + coord;
-    const size_t col = coord * NB_NODE_PER_TET; // tet 0, local vertex 0
+  // for (size_t coord = 0; coord < DIMENSION; ++coord) {
+  //   const size_t row = bcOffset + coord;
+  //   const size_t col = coord * NB_NODE_PER_TET; // tet 0, local vertex 0
 
-    system.insert(row, col) = 1.0;
-    system.insert(col, row) = 1.0;
-    knowns(row) = 0.0;
-  }
+  //   system.insert(row, col) = 1.0;
+  //   system.insert(col, row) = 1.0;
+  //   knowns(row) = 0.0;
+  // }
 
   system.makeCompressed();
 
-  Eigen::ConjugateGradient<Eigen::SparseMatrix<double>,
-                           Eigen::Lower | Eigen::Upper>
-      solver;
+  std::cout << "END SYSTEM BUILD" << std::endl;
 
-  solver.setMaxIterations(10000);
-  solver.setTolerance(1e-8);
-  solver.compute(system);
+  // SOLVE
 
-  Eigen::VectorXd result;
-  if (solver.info() != Eigen::Success) {
-    std::cerr << "Failed to initialize CG solver\n";
-  } else {
-    result = solver.solve(knowns);
+  std::vector<size_t> boundaryRows;
+  boundaryRows.push_back(0);
 
-    std::cerr << "Iterations: " << solver.iterations() << '\n';
-    std::cerr << "Estimated error: " << solver.error() << '\n';
-
-    if (solver.info() != Eigen::Success) {
-      std::cerr << "CG failed to converge\n";
-    }
-  }
-
-  size_t dimensionOffset = NB_UNKNOWN_PER_TET;
-  auto setLocalVertices = [&](size_t tetId, size_t localNodeId, Vertex value) {
-    size_t offset = tetId * NB_UNKNOWN_PER_TET;
-    for (size_t dim = 0; dim < DIMENSION; dim++)
-      result[offset + dim * NB_NODE_PER_TET + localNodeId] = value[dim];
-  };
-  auto getLocalVertices = [&](size_t tetId, size_t localNodeId) -> Vertex {
-    size_t offset = tetId * NB_UNKNOWN_PER_TET;
-    Vertex res;
-    for (size_t dim = 0; dim < DIMENSION; dim++)
-      res[dim] = result[offset + dim * NB_NODE_PER_TET + localNodeId];
-    return res;
-  };
   auto getGlobalVertices = [&](size_t tetId, size_t globalNodeId) {
     auto tetNodes = mesh.tets[tetId];
     for (size_t i = 0; i < tetNodes.size(); i++) {
@@ -287,94 +291,52 @@ int main(int argc, char *argv[]) {
     }
     assert(false);
   };
-  auto setGlobalVertices = [&](size_t tetId, size_t globalNodeId,
-                               Vertex value) {
-    auto tetNodes = mesh.tets[tetId];
-    for (size_t i = 0; i < tetNodes.size(); i++) {
-      if (tetNodes[i] == globalNodeId)
-        return setLocalVertices(tetId, i, value);
-    }
-    assert(false);
-  };
 
-  std::vector<Eigen::Vector3d> vertices(mesh.tets.size() * NB_NODE_PER_TET);
-  for (size_t i = 0; i < mesh.tets.size(); i++) {
-    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
-      vertices[NB_NODE_PER_TET * i + j] = getLocalVertices(i, j);
-  }
-  // saveMeshVtk(vertices, "nospanning.vtk");
-  std::cout << "SAVED NO SPANNING" << std::endl;
-
-  std::vector<bool> include(mesh.tets.size());
-  std::fill(include.begin(), include.end(), false);
-  for (size_t faceId : spanTree) {
+  for (size_t faceId = 0; faceId < mesh.faces.size(); faceId++) {
+    if (mesh.faces[faceId].adjacentCells[1] != UNDEFINED_ELEMENT)
+      continue;
     Face &face = mesh.faces[faceId];
-    auto faceNodes = face.vertices;
-    if (face.adjacentCells[1] == UNDEFINED_ELEMENT)
-      continue;
-    size_t parent = face.adjacentCells[0];
-    size_t child = face.adjacentCells[1];
-    include[parent] = true;
-    include[child] = true;
+    size_t tetId = face.adjacentCells[0];
 
-    // Find the child tip
-    auto childNodes = mesh.tets[child];
-    size_t childTipLocalId = NB_NODE_PER_TET;
-    for (childTipLocalId = 0; childTipLocalId < NB_NODE_PER_TET;
-         childTipLocalId++) {
-      size_t tipGlobalId = childNodes[childTipLocalId];
-      if (std::find(faceNodes.begin(), faceNodes.end(), tipGlobalId) ==
-          faceNodes.end())
-        break;
+    Vertex textureNodes[NB_NODE_PER_FACE];
+    for (size_t i = 0; i < NB_NODE_PER_FACE; i++)
+      textureNodes[i] = getGlobalVertices(tetId, face.vertices[i]);
+
+    Vertex normal = getNormal(textureNodes);
+    size_t axis = getPrincipalAxis(normal);
+
+    std::array<size_t, DIMENSION * NB_NODE_PER_FACE> rows;
+    size_t baseTet = NB_UNKNOWN_PER_TET * tetId;
+    for (size_t node = 0; node < NB_NODE_PER_FACE; node++) {
+      for (size_t d = 0; d < DIMENSION; d++)
+        boundaryRows.push_back(baseTet + d * NB_NODE_PER_TET + node);
     }
-    assert(childTipLocalId < NB_NODE_PER_TET);
-
-    size_t parentTipLocalId = NB_NODE_PER_TET;
-    auto parentNodes = mesh.tets[parent];
-    for (parentTipLocalId = 0; parentTipLocalId < NB_NODE_PER_TET;
-         parentTipLocalId++) {
-      size_t tipGlobalId = parentNodes[parentTipLocalId];
-      if (std::find(faceNodes.begin(), faceNodes.end(), tipGlobalId) ==
-          faceNodes.end())
-        break;
-    }
-    assert(parentTipLocalId < NB_NODE_PER_TET);
-
-    Vertex childTip(getLocalVertices(child, childTipLocalId));
-
-    Vertex oldFace[NB_NODE_PER_FACE];
-    Vertex newFace[NB_NODE_PER_FACE];
-
-    for (size_t i = 0; i < NB_NODE_PER_FACE; i++) {
-      size_t node = faceNodes[i];
-      Vertex fp = getGlobalVertices(parent, node);
-      Vertex fc = getGlobalVertices(child, node);
-      oldFace[i] = fc;
-      newFace[i] = fp;
-      setGlobalVertices(child, node, fp);
-    }
-
-    Vertex &parentTip = mesh.vertices[parentNodes[parentTipLocalId]];
-    auto newTip = tipProject(oldFace, newFace, childTip);
-    setLocalVertices(child, childTipLocalId, newTip);
   }
 
-  vertices.clear();
-  for (size_t i = 0; i < mesh.tets.size(); i++) {
-    if (!include[i])
-      continue;
-    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
-      vertices.push_back(getLocalVertices(i, j));
+  size_t nbIter = boundaryRows.size();
+  while (!boundaryRows.empty()) {
+    std::cout << "---------- ITERATION " << boundaryRows.size() << "/" << nbIter
+              << " ----------" << std::endl;
+    cubeCoverIteration(params, boundaryRows[boundaryRows.size() - 1]);
+
+    // TODO update here how we set values
+    // vertices.clear();
+    // auto getLocalVertices = [&](size_t tetId, size_t localNodeId) -> Vertex {
+    //   size_t offset = tetId * NB_UNKNOWN_PER_TET;
+    //   Vertex res;
+    //   for (size_t dim = 0; dim < DIMENSION; dim++)
+    //     res[dim] = params.result[offset + dim * NB_NODE_PER_TET +
+    //     localNodeId];
+    //   return res;
+    // };
+    // for (size_t i = 0; i < mesh.tets.size(); i++) {
+    //   for (size_t j = 0; j < NB_NODE_PER_TET; j++)
+    //     vertices.push_back(getLocalVertices(i, j));
+    // }
+    // saveMeshVtk(vertices, params.frames,
+    //             "iteration" + std::to_string(boundaryRows.size()) + ".vtk");
+
+    // boundaryRows.pop_back();
   }
-  saveMeshVtk(vertices, frames);
-
-  vertices.clear();
-  for (size_t i = 0; i < mesh.tets.size(); i++) {
-    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
-      vertices.push_back(mesh.vertices[mesh.tets[i][j]]);
-  }
-
-  saveMeshVtk(vertices, frames, "input.vtk");
-
   return EXIT_SUCCESS;
 }

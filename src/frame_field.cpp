@@ -1,15 +1,17 @@
 #include "frame_field.hpp"
 #include "constants.hpp"
 #include "mesh_loader.hpp"
+#include "trilaterate.hpp"
 
 #include <Eigen/Eigen>
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <random>
 
-void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames,
-                            TetrahedralMesh &mesh) {
+void fillFrameField(std::vector<Eigen::Matrix3d> &frames,
+                    TetrahedralMesh &mesh) {
 
   std::array<Eigen::Matrix3d, 24> permutations;
   int count = 0;
@@ -45,6 +47,76 @@ void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames,
   // std::uniform_int_distribution<int> dist(0, 23);
 
   for (size_t tet = 0; tet < mesh.tets.size(); tet++) {
+    // auto facesId = mesh.tetToFaces[tet];
+    // bool boundaryTet = false;
+    // Vertex normalAcc = Vertex::Zero();
+    // for (size_t faceId : facesId) {
+    //   Face &face = mesh.faces[faceId];
+    //   if (face.adjacentCells[1] == UNDEFINED_ELEMENT) {
+    //     bool boundaryTet = true;
+    //     auto vIds = face.vertices;
+    //     Vertex nodes[3];
+    //     for (size_t i = 0; i < NB_NODE_PER_FACE; i++)
+    //       nodes[i] = mesh.vertices[vIds[i]];
+    //     auto tetIds = mesh.tets[tet];
+    //     size_t tipLocalId = NB_NODE_PER_TET;
+    //     for (tipLocalId = 0; tipLocalId < NB_NODE_PER_TET; tipLocalId++) {
+    //       size_t tipGlobalId = tetIds[tipLocalId];
+    //       if (std::find(vIds.begin(), vIds.end(), tipGlobalId) == vIds.end())
+    //         break;
+    //     }
+    //     assert(tipLocalId < NB_NODE_PER_TET);
+    //     Vertex tip = mesh.vertices[tetIds[tipLocalId]];
+    //     Vertex n = getNormal(nodes);
+    //     if ((nodes[0] - tip).dot(n) < 0)
+    //       n *= -1;
+    //     normalAcc += n;
+    //   }
+    // }
+    // if (boundaryTet) {
+    //   normalAcc.normalize();
+
+    //   size_t coordAlignBest;
+    //   double signBest;
+    //   double measureBest = 0;
+
+    //   size_t coordAlignWorst;
+    //   double signWorst;
+    //   double measureWorst = std::numeric_limits<double>::max();
+
+    //   for (size_t coord = 0; coord < DIMENSION; coord++) {
+    //     Vertex unit = Vertex::Zero();
+    //     unit[coord] = 1;
+    //     double dotProduct = normalAcc.dot(unit);
+    //     double sign = dotProduct > 0 ? 1 : -1;
+    //     double cur = std::abs(dotProduct);
+    //     if (measureBest + 10e-3 < cur) {
+    //       measureBest = cur;
+    //       coordAlignBest = coord;
+    //       signBest = sign;
+    //     }
+    //     if (measureWorst - 10e-3 > cur) {
+    //       measureWorst = cur;
+    //       coordAlignWorst = coord;
+    //       signWorst = sign;
+    //     }
+    //   }
+    //   assert(measureWorst < 10e-3); // temporary, just for prism
+
+    //   Eigen::Matrix3d frame;
+    //   frame.col(coordAlignBest) = normalAcc;
+    //   frame.col(coordAlignWorst) = Vertex::Zero();
+    //   frame.col(coordAlignWorst)[coordAlignWorst] = 1;
+    //   size_t lastCoord = 2;
+    //   if ((coordAlignWorst + coordAlignBest) == 3)
+    //     lastCoord = 0;
+    //   if ((coordAlignWorst + coordAlignBest) == 2)
+    //     lastCoord = 1;
+    //   frame.col(lastCoord) =
+    //   normalAcc.cross(frames[tet].col(coordAlignWorst)); frames[tet] +=
+    //   frame; for (size_t coord = 0; coord < DIMENSION; coord++)
+    //     frames[tet].col(coord).normalize();
+    // } else {
     Vertex bary = Vertex::Zero();
     for (size_t i = 0; i < NB_NODE_PER_TET; i++) {
       bary += mesh.vertices[mesh.tets[tet][i]];
@@ -69,8 +141,8 @@ void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames,
       frames[tet].col(1) << -sin(theta), cos(theta), 0;
       frames[tet].col(2) << 0, 0, 1;
     }
-    // auto frame = permutations[dist(rng)];
   }
+  // }
 }
 
 Eigen::Matrix3i computePiST(Eigen::Matrix3d frameS, Eigen::Matrix3d frameT) {

@@ -1,8 +1,9 @@
 #include "trilaterate.hpp"
 #include <Eigen/Dense>
+#include <iostream>
 #include <stdexcept>
 
-static Vertex getNormal(const Vertex plane[3]) {
+Vertex getNormal(const Vertex plane[3]) {
   const Vertex u = plane[1] - plane[0];
   const Vertex v = plane[2] - plane[0];
   const Vertex cross = u.cross(v);
@@ -33,7 +34,8 @@ Vertex tipProject(const Vertex oldFace[3], const Vertex newFace[3],
   Eigen::Vector2d rhs(q.dot(e0), q.dot(e1));
 
   if (std::abs(G.determinant()) < 1e-24) {
-    throw std::invalid_argument("Degenerate old face in tipProject");
+    // throw std::invalid_argument("Degenerate old face in tipProject");
+    std::cerr << "Degenerate old face in tipProject";
   }
 
   const Eigen::Vector2d uv = G.ldlt().solve(rhs);

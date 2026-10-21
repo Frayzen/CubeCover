@@ -6,7 +6,7 @@
 
 Eigen::Matrix3i computePiST(Eigen::Matrix3d frameS, Eigen::Matrix3d frameT);
 
-void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames,
-                            TetrahedralMesh &mesh);
+void fillFrameField(std::vector<Eigen::Matrix3d> &frames,
+                    TetrahedralMesh &mesh);
 
 #endif
