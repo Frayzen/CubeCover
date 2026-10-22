@@ -8,5 +8,5 @@ void saveMeshGmsh(const std::vector<Eigen::Vector3d> &vertices,
                   const std::string &filename = "output.mesh");
 void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
                  const std::vector<Eigen::Matrix3d> &frames,
-                 const std::string &filename = "output.vtk");
+                 const std::string &path);
 #endif

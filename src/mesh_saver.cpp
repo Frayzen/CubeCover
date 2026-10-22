@@ -74,7 +74,7 @@ void saveMeshGmsh(const std::vector<Eigen::Vector3d> &vertices,
 
 void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
                  const std::vector<Eigen::Matrix3d> &frames,
-                 const std::string &filename) {
+                 const std::string &path) {
   if (vertices.size() % 4 != 0) {
     throw std::invalid_argument(
         "The number of vertices must be a multiple of 4.");
@@ -139,11 +139,11 @@ void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
 
   // Write VTK mesh.
   auto writer = vtkSmartPointer<vtkUnstructuredGridWriter>::New();
-  writer->SetFileName(filename.c_str());
+  writer->SetFileName(path.c_str());
   writer->SetInputData(grid);
   writer->SetFileTypeToBinary();
 
   if (writer->Write() != 1) {
-    throw std::runtime_error("Failed to write VTK mesh to " + filename);
+    throw std::runtime_error("Failed to write VTK mesh to " + path);
   }
 }
