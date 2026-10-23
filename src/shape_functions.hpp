@@ -24,6 +24,22 @@ struct DiffTetShapeFunctions {
       assert(false);
     }
   }
+
+  inline const Vertex &operator[](size_t i) const {
+    switch (i) {
+    case 0:
+      return g0;
+    case 1:
+      return g1;
+    case 2:
+      return g2;
+    case 3:
+      return g3;
+    default:
+      std::cerr << "Wrong value provided " << i << std::endl;
+      assert(false);
+    }
+  }
 };
 
 double computeVolume(TetrahedralMesh &mesh, size_t tetId);

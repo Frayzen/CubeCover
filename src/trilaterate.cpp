@@ -2,7 +2,7 @@
 #include <Eigen/Dense>
 #include <stdexcept>
 
-static Vertex getNormal(const Vertex plane[3]) {
+Vertex getNormal(const Vertex plane[3]) {
   const Vertex u = plane[1] - plane[0];
   const Vertex v = plane[2] - plane[0];
   const Vertex cross = u.cross(v);

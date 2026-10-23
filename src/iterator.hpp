@@ -10,28 +10,36 @@ private:
   size_t getId(size_t tetId, size_t localNode, size_t coord);
 
   void fillLaplaceTop();
+  void debugSolvedGradients();
   void fillConstraintTop();
+  void applySpanTree();
+  void solve();
+  void buildCoordsToRemove();
+  void removeOneCoord(size_t coordId);
   Vertex getVertex(size_t tetId, size_t localNodeId);
   std::array<Vertex, NB_NODE_PER_TET> getTetrahedraVertices(size_t tetId);
 
 public:
   CubeCoverIterator(TetrahedralMesh &m, std::vector<Eigen::Matrix3d> &frames)
-      : mesh(m), frames(frames),
-        sizeLaplace(mesh.tets.size() * NB_UNKNOWN_PER_TET),
+      : mesh(m), frames(frames), sizeLaplace(mesh.vertices.size() * DIMENSION),
         sizeConstraint(mesh.amountInternalFace * NB_NODE_PER_FACE * DIMENSION) {
-    size_t N = sizeLaplace + sizeConstraint;
+    // const size_t N = sizeLaplace + sizeConstraint;
+    const size_t N = sizeLaplace;
+
     A = Eigen::SparseMatrix<double>(N, N);
-    A.reserve(sizeLaplace + sizeConstraint);
+    A.reserve(N);
+
     b = Eigen::VectorXd::Zero(N);
     x = Eigen::VectorXd::Zero(N);
-    scalarLocation.resize(N);
-    for (size_t i = 0; i < N; i++)
-      scalarLocation[i] = i;
-  };
+
+    scalarLocation.resize(sizeLaplace);
+
+    for (size_t i = 0; i < sizeLaplace; ++i)
+      scalarLocation[i] = static_cast<int>(i);
+  }
 
   void initialize();
-  void solve();
-  void applySpanTree(std::vector<size_t> spanTree);
+  void iterate();
   void saveMesh(std::string path);
 
   TetrahedralMesh &mesh;
@@ -42,12 +50,15 @@ public:
   Eigen::VectorX<double> b;
   Eigen::VectorX<double> x;
 
+  std::vector<size_t> spanTree;
+
   Eigen::VectorX<double> spannedX;
   std::vector<double> fixedValues;
 
   // negative means fixedValues,
   // positive means x (or spannedX)
   std::vector<int> scalarLocation;
+  std::vector<int> coordsToRemove;
 };
 
 #endif

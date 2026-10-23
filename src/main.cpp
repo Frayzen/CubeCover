@@ -3,12 +3,12 @@
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
 #include "mesh_saver.hpp"
-#include "span_tree.hpp"
 #include <Eigen/Core>
 #include <Eigen/IterativeLinearSolvers>
 
 #include <Eigen/Eigen>
 #include <Eigen/Eigenvalues>
+#include <exception>
 #include <iostream>
 
 struct BBox {
@@ -26,7 +26,9 @@ int main(int argc, char *argv[]) {
   if (!loadTetrahedralMesh(argv[1], mesh)) {
     return EXIT_FAILURE;
   }
-  std::vector<size_t> spanTree = convertToSpanTree(mesh);
+  // for (size_t i = 0; i < mesh.vertices.size(); i++)
+  //   mesh.vertices[i] *= 100;
+
   std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
   fillRandomPermutations(frames, mesh);
 
@@ -49,19 +51,45 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  std::vector<Vertex> vertices;
+  std::vector<Eigen::Vector3i> fixedMask;
+  for (size_t i = 0; i < mesh.tets.size(); i++) {
+    for (size_t j = 0; j < NB_NODE_PER_TET; j++) {
+      vertices.push_back(mesh.vertices[mesh.tets[i][j]]);
+      fixedMask.push_back(Eigen::Vector3i::Zero());
+    }
+  }
+  saveMeshVtk(vertices, frames, fixedMask, "input.vtu");
+
   CubeCoverIterator system(mesh, frames);
   system.initialize();
-  system.solve();
 
-  system.applySpanTree(spanTree);
-  system.saveMesh("output.vtk");
+  size_t totalIter = system.coordsToRemove.size();
+  std::vector<std::string> meshFiles;
+  size_t i = 0;
 
-  std::vector<Vertex> vertices;
-  for (size_t i = 0; i < mesh.tets.size(); i++) {
-    for (size_t j = 0; j < NB_NODE_PER_TET; j++)
-      vertices.push_back(mesh.vertices[mesh.tets[i][j]]);
+  while (!system.coordsToRemove.empty()) {
+    std::cout << "============ ITERATION " << i << " / " << totalIter
+              << " ============" << std::endl;
+
+    try {
+      system.iterate();
+    } catch (std::exception &e) {
+      std::cout << "Error " << e.what() << std::endl;
+      saveMeshCollection("output.pvd", meshFiles);
+      exit(1);
+    }
+
+    std::string filename = "output_" + std::to_string(i) + ".vtu";
+    system.saveMesh(filename);
+    meshFiles.push_back(filename);
+    saveMeshCollection("output.pvd", meshFiles);
+
+    ++i;
+    exit(1);
   }
-  saveMeshVtk(vertices, frames, "input.vtk");
+
+  saveMeshCollection("output.pvd", meshFiles);
 
   return EXIT_SUCCESS;
 }

@@ -27,6 +27,13 @@ struct Tetrahedron {
 
     throw std::runtime_error("Face vertex not found in adjacent tetrahedron");
   };
+
+  Vertex getBarycenter(std::vector<Vertex> &meshVertices) const {
+    Vertex res = Vertex::Zero();
+    for (size_t i = 0; i < NB_NODE_PER_TET; ++i)
+      res += meshVertices[v[i]];
+    return res / NB_NODE_PER_TET;
+  }
 };
 
 struct Face {

@@ -45,31 +45,29 @@ void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames,
   // std::uniform_int_distribution<int> dist(0, 23);
 
   for (size_t tet = 0; tet < mesh.tets.size(); tet++) {
-    Vertex bary = Vertex::Zero();
-    for (size_t i = 0; i < NB_NODE_PER_TET; i++) {
-      bary += mesh.vertices[mesh.tets[tet][i]];
-    }
-    bary /= NB_NODE_PER_TET;
-
-    if (bary.x() < 0.15 && bary.y() < 0.15) {
-      // case bot left
-      frames[tet].col(0) << 1, 0, 0;
-      frames[tet].col(1) << 0, 1, 0;
-      frames[tet].col(2) << 0, 0, 1;
-    } else if (bary.y() > 0.15 && bary.x() < bary.y()) {
-      // case top left
-      double theta = M_PI / 3;
-      frames[tet].col(0) << cos(theta), sin(theta), 0;
-      frames[tet].col(1) << -sin(theta), cos(theta), 0;
-      frames[tet].col(2) << 0, 0, 1;
-    } else {
-      // case bot right
-      double theta = M_PI / 6;
-      frames[tet].col(0) << cos(theta), sin(theta), 0;
-      frames[tet].col(1) << -sin(theta), cos(theta), 0;
-      frames[tet].col(2) << 0, 0, 1;
-    }
-    // auto frame = permutations[dist(rng)];
+    //   Vertex bary = mesh.tets[tet].getBarycenter(mesh.vertices);
+    //   const double SQUARE_BOUND = 15;
+    //   // const double SQUARE_BOUND = 0.15;
+    //   if (bary.x() < SQUARE_BOUND && bary.y() < SQUARE_BOUND) {
+    //     // case bot left
+    //     frames[tet].col(0) << 1, 0, 0;
+    //     frames[tet].col(1) << 0, 1, 0;
+    //     frames[tet].col(2) << 0, 0, 1;
+    //   } else if (bary.y() > SQUARE_BOUND && bary.x() < bary.y()) {
+    //     // case top left
+    //     double theta = M_PI / 3;
+    //     frames[tet].col(0) << cos(theta), sin(theta), 0;
+    //     frames[tet].col(1) << -sin(theta), cos(theta), 0;
+    //     frames[tet].col(2) << 0, 0, 1;
+    //   } else {
+    //     // case bot right
+    //     double theta = M_PI / 6;
+    //     frames[tet].col(0) << cos(theta), sin(theta), 0;
+    //     frames[tet].col(1) << -sin(theta), cos(theta), 0;
+    //     frames[tet].col(2) << 0, 0, 1;
+    //   }
+    //   // auto frame = permutations[dist(rng)];
+    frames[tet] = Eigen::Matrix3d::Identity();
   }
 }
 
