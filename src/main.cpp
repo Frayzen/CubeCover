@@ -29,8 +29,19 @@ int main(int argc, char *argv[]) {
   // for (size_t i = 0; i < mesh.vertices.size(); i++)
   //   mesh.vertices[i] *= 100;
 
-  std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
-  fillRandomPermutations(frames, mesh);
+  Eigen::Matrix3d frame;
+  frame.col(0) << 1, 0, -0.2;
+  frame.col(1) << 0, 1, -0.2;
+  frame.col(2) << 0, 0, 1;
+  for (size_t i = 0; i < DIMENSION; i++)
+    frame.col(i).normalize();
+
+  std::vector<Eigen::Matrix3d> frames(mesh.tets.size(), frame);
+
+  std::cout << frame.transpose() * frame << '\n';
+  std::cout << frame.determinant() << '\n';
+
+  // fillRandomPermutations(frames, mesh);
 
   std::cout << "Loaded tetrahedral mesh successfully.\n"
             << "Vertices: " << mesh.vertices.size() << '\n'

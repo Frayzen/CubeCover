@@ -23,8 +23,8 @@ public:
   CubeCoverIterator(TetrahedralMesh &m, std::vector<Eigen::Matrix3d> &frames)
       : mesh(m), frames(frames), sizeLaplace(mesh.vertices.size() * DIMENSION),
         sizeConstraint(mesh.amountInternalFace * NB_NODE_PER_FACE * DIMENSION) {
-    // const size_t N = sizeLaplace + sizeConstraint;
-    const size_t N = sizeLaplace;
+    const size_t N = sizeLaplace + sizeConstraint;
+    // const size_t N = sizeLaplace;
 
     A = Eigen::SparseMatrix<double>(N, N);
     A.reserve(N);

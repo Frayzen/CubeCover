@@ -174,7 +174,7 @@ void CubeCoverIterator::buildCoordsToRemove() {
 void CubeCoverIterator::initialize() {
   std::cout << "Initializing...\n";
   fillLaplaceTop();
-  // fillConstraintTop();
+  fillConstraintTop();
   A.makeCompressed();
   spanTree = convertToSpanTree(mesh);
   buildCoordsToRemove();
