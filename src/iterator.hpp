@@ -29,6 +29,10 @@ public:
 
     b = Eigen::VectorXd::Zero(N);
     x = Eigen::VectorXd::Zero(N);
+    for (size_t i = 0; i < mesh.vertices.size(); i++) {
+      for (size_t d = 0; d < DIMENSION; d++)
+        x[DIMENSION * i + d] = mesh.vertices[i][d];
+    }
 
     scalarLocation.resize(sizeLaplace);
 
