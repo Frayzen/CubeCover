@@ -5,7 +5,6 @@
 #include "shape_functions.hpp"
 #include "vertex.hpp"
 #include <Eigen/IterativeLinearSolvers>
-#include <system_error>
 
 size_t CubeCoverIterator::getId(size_t tetId, size_t localNode, size_t coord) {
   const size_t vertexId = mesh.tets[tetId][localNode];
@@ -41,19 +40,47 @@ void CubeCoverIterator::fillCornerConstraints() {
   size_t offset = sizeLaplace;
   size_t constraintId = 0;
 
-  size_t nodeId[NB_CUBE_CORNER] = {0, 1, 7, 6, 2, 3, 5, 4};
-  static const Vertex corners[NB_CUBE_CORNER] = {
-      Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),
-      Vertex(1, 0, 0), Vertex(1, 0, 1), Vertex(1, 1, 1), Vertex(1, 1, 0),
-  };
+  // static const Vertex corners[NB_CUBE_CORNER] = {
+  //     Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),
+  //     Vertex(1, 0, 0), Vertex(1, 0, 1), Vertex(1, 1, 1), Vertex(1, 1, 0),
+  // };
+  // size_t factor = 1;
+  // for (size_t i = 0; i < NB_CUBE_CORNER; i++) {
+  //   for (size_t d = 0; d < DIMENSION; d++) {
+  //     A.coeffRef(offset + constraintId, cornerIds[i] * DIMENSION + d) =
+  //     factor; A.coeffRef(cornerIds[i] * DIMENSION + d, offset + constraintId)
+  //     = factor;
 
-  for (size_t i = 0; i < NB_CUBE_CORNER; i++) {
-    for (size_t d = 0; d < DIMENSION; d++) {
-      A.coeffRef(offset + constraintId, nodeId[i] * DIMENSION + d) = 1;
-      b.coeffRef(offset + constraintId) = corners[i][d] * 10;
+  //     b.coeffRef(offset + constraintId) = corners[i][d] * factor;
+  //     constraintId++;
+  //   }
+  // }
+
+  std::array<std::array<size_t, 4>, 6> sharingCoord = {};
+  sharingCoord[0] = {0, 1, 2, 3}; // X+
+  sharingCoord[1] = {4, 5, 6, 7}; // X-
+  sharingCoord[2] = {0, 1, 4, 5}; // Y+
+  sharingCoord[3] = {2, 3, 6, 7}; // Y-
+  sharingCoord[4] = {0, 3, 4, 7}; // Z+
+  sharingCoord[5] = {1, 2, 5, 6}; // Z-
+
+  for (size_t i = 0; i < 6; i++) {
+    size_t dim = i / 2;
+    size_t colFirstNode = cornerIds[sharingCoord[i][0]] * DIMENSION + dim;
+    for (size_t j = 1; j < 4; j++) {
+      size_t col = cornerIds[sharingCoord[i][j]] * DIMENSION + dim;
+      size_t row = offset + constraintId;
+      A.coeffRef(row, col) = 1;
+      A.coeffRef(col, row) = 1;
+
+      A.coeffRef(row, colFirstNode) = -1;
+      A.coeffRef(colFirstNode, row) = -1;
+
+      b.coeffRef(row) = 0;
       constraintId++;
     }
   }
+
   assert(constraintId == sizeConstraint);
 }
 
@@ -68,13 +95,42 @@ void CubeCoverIterator::iterate() {
   saveMesh("nospanning.vtu");
 }
 
+// void CubeCoverIterator::solve() {
+//   std::cout << "Solving..." << std::endl;
+
+//   Eigen::ConjugateGradient<Eigen::SparseMatrix<double>,
+//                            Eigen::Lower | Eigen::Upper>
+//       solver;
+
+//   solver.setMaxIterations(10000);
+//   solver.setTolerance(1e-5);
+//   solver.compute(A);
+
+//   Eigen::VectorXd result;
+
+//   if (solver.info() != Eigen::Success) {
+//     std::cerr << "Failed to initialize CG solver\n";
+//   } else {
+//     x = solver.solveWithGuess(b, x);
+//     Eigen::VectorXd r = A * x - b;
+
+//     std::cerr << "Iterations: " << solver.iterations() << '\n';
+//     std::cerr << "Estimated error: " << solver.error() << '\n';
+
+//     if (solver.info() != Eigen::Success) {
+//       std::cerr << "CG failed to converge\n";
+//       throw std::system_error();
+//     }
+//   }
+// }
+
 void CubeCoverIterator::solve() {
   std::cout << "Solving..." << std::endl;
 
   Eigen::LeastSquaresConjugateGradient<Eigen::SparseMatrix<double>> solver;
 
   solver.setMaxIterations(10000);
-  solver.setTolerance(1e-8);
+  solver.setTolerance(1e-15);
 
   solver.compute(A);
 

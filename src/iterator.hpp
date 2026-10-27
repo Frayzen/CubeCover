@@ -17,9 +17,10 @@ private:
   std::array<Vertex, NB_NODE_PER_TET> getTetrahedraVertices(size_t tetId);
 
 public:
-  CubeCoverIterator(TetrahedralMesh &m, std::vector<Eigen::Matrix3d> &frames)
+  CubeCoverIterator(TetrahedralMesh &m, std::vector<Eigen::Matrix3d> &frames,
+                    std::array<size_t, NB_CUBE_CORNER> cornerIds)
       : mesh(m), frames(frames), sizeLaplace(mesh.vertices.size() * DIMENSION),
-        sizeConstraint(NB_CUBE_CORNER * DIMENSION) {
+        sizeConstraint(3 * 6), cornerIds(cornerIds) {
     const size_t N = sizeLaplace + sizeConstraint;
     // const size_t N = sizeLaplace;
 
@@ -53,6 +54,7 @@ public:
   // negative means fixedValues,
   // positive means x (or spannedX)
   std::vector<int> scalarLocation;
+  std::array<size_t, NB_CUBE_CORNER> cornerIds;
 };
 
 #endif

@@ -46,4 +46,6 @@ double computeVolume(TetrahedralMesh &mesh, size_t tetId);
 
 DiffTetShapeFunctions computeDiffShapeFunctions(TetrahedralMesh &mesh,
                                                 size_t tetId);
+Eigen::Matrix3d computeHexaJacobian(const std::array<Vertex, 8> &nodes,
+                                    const Vertex &refPoint);
 #endif
