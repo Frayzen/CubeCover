@@ -1,8 +1,6 @@
 #include "constants.hpp"
-#include "frame_field.hpp"
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
-#include "mesh_saver.hpp"
 #include <Eigen/Core>
 #include <Eigen/IterativeLinearSolvers>
 
@@ -26,20 +24,13 @@ int main(int argc, char *argv[]) {
   if (!loadTetrahedralMesh(argv[1], mesh)) {
     return EXIT_FAILURE;
   }
-  // for (size_t i = 0; i < mesh.vertices.size(); i++)
-  //   mesh.vertices[i] *= 100;
 
   Eigen::Matrix3d frame;
   frame.col(0) << 1, 0, -0.2;
   frame.col(1) << 0, 1, -0.2;
   frame.col(2) << 0, 0, 1;
-  for (size_t i = 0; i < DIMENSION; i++)
-    frame.col(i).normalize();
 
   std::vector<Eigen::Matrix3d> frames(mesh.tets.size(), frame);
-
-  std::cout << frame.transpose() * frame << '\n';
-  std::cout << frame.determinant() << '\n';
 
   // fillRandomPermutations(frames, mesh);
 
@@ -62,45 +53,20 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  std::vector<Vertex> vertices;
-  std::vector<Eigen::Vector3i> fixedMask;
-  for (size_t i = 0; i < mesh.tets.size(); i++) {
-    for (size_t j = 0; j < NB_NODE_PER_TET; j++) {
-      vertices.push_back(mesh.vertices[mesh.tets[i][j]]);
-      fixedMask.push_back(Eigen::Vector3i::Zero());
-    }
-  }
-  saveMeshVtk(vertices, frames, fixedMask, "input.vtu");
-
   CubeCoverIterator system(mesh, frames);
   system.initialize();
 
-  size_t totalIter = system.coordsToRemove.size();
   std::vector<std::string> meshFiles;
-  size_t i = 0;
 
-  while (!system.coordsToRemove.empty()) {
-    std::cout << "============ ITERATION " << i << " / " << totalIter
-              << " ============" << std::endl;
-
-    try {
-      system.iterate();
-    } catch (std::exception &e) {
-      std::cout << "Error " << e.what() << std::endl;
-      saveMeshCollection("output.pvd", meshFiles);
-      exit(1);
-    }
-
-    std::string filename = "output_" + std::to_string(i) + ".vtu";
-    system.saveMesh(filename);
-    meshFiles.push_back(filename);
-    saveMeshCollection("output.pvd", meshFiles);
-
-    ++i;
+  try {
+    system.iterate();
+  } catch (std::exception &e) {
+    std::cout << "Error " << e.what() << std::endl;
     exit(1);
   }
 
-  saveMeshCollection("output.pvd", meshFiles);
+  std::string filename = "output.vtu";
+  system.saveMesh(filename);
 
   return EXIT_SUCCESS;
 }

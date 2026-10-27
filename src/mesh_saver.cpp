@@ -33,88 +33,8 @@
 #include <string>
 #include <vector>
 
-void saveMeshCollection(const std::string &path,
-                        const std::vector<std::string> &meshFiles) {
-  std::ofstream out(path);
-  if (!out) {
-    throw std::runtime_error("Failed to write VTK collection to " + path);
-  }
-
-  out << "<?xml version=\"1.0\"?>\n"
-      << "<VTKFile type=\"Collection\" version=\"0.1\" "
-         "byte_order=\"LittleEndian\">\n"
-      << "  <Collection>\n";
-
-  for (std::size_t i = 0; i < meshFiles.size(); ++i) {
-    out << "    <DataSet timestep=\"" << i << "\" group=\"\" part=\"0\" file=\""
-        << meshFiles[i] << "\"/>\n";
-  }
-
-  out << "  </Collection>\n"
-      << "</VTKFile>\n";
-
-  if (!out) {
-    throw std::runtime_error("Failed while writing VTK collection to " + path);
-  }
-}
-
-void saveMeshGmsh(const std::vector<Eigen::Vector3d> &vertices,
-                  const std::string &filename) {
-  if (vertices.size() % 4 != 0) {
-    throw std::invalid_argument(
-        "The number of vertices must be a multiple of 4.");
-  }
-
-  std::ofstream out(filename);
-  if (!out) {
-    throw std::runtime_error("Cannot open file: " + filename);
-  }
-
-  const std::size_t numVertices = vertices.size();
-  const std::size_t numTets = numVertices / 4;
-
-  // Medit ASCII mesh format
-  out << "MeshVersionFormatted 2\n";
-  out << "Dimension 3\n\n";
-
-  out << "Vertices\n" << numVertices << '\n';
-
-  for (const auto &v : vertices) {
-    out << v.x() << ' ' << v.y() << ' ' << v.z() << " 0\n";
-  }
-
-  out << "\nTetrahedra\n" << numTets << '\n';
-
-  // Medit uses 1-based vertex indices.
-  for (std::size_t i = 0; i < numTets; ++i) {
-    const std::size_t base = 4 * i + 1;
-    out << base << ' ' << base + 1 << ' ' << base + 2 << ' ' << base + 3
-        << " 0\n";
-  }
-
-  out << "\nEnd\n";
-
-  if (!out) {
-    throw std::runtime_error("Failed to write mesh: " + filename);
-  }
-}
-
-#include <stdexcept>
-#include <string>
-#include <vector>
-
-#include <Eigen/Dense>
-
-#include <vtkCellData.h>
-#include <vtkDoubleArray.h>
-#include <vtkPoints.h>
-#include <vtkSmartPointer.h>
-#include <vtkUnstructuredGrid.h>
-#include <vtkUnstructuredGridWriter.h>
-
 void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
                  const std::vector<Eigen::Matrix3d> &frames,
-                 const std::vector<Eigen::Vector3i> &fixedMasks,
                  const std::string &path) {
   if (vertices.size() % 4 != 0) {
     throw std::invalid_argument(
@@ -128,11 +48,6 @@ void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
         "The number of frames must match the number of tetrahedra.");
   }
 
-  if (fixedMasks.size() != vertices.size()) {
-    throw std::invalid_argument(
-        "The number of fixed masks must match the number of vertices.");
-  }
-
   auto points = vtkSmartPointer<vtkPoints>::New();
   auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
 
@@ -142,28 +57,6 @@ void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
   }
 
   grid->SetPoints(points);
-  // Point-data arrays describing fixed coordinate components.
-  vtkSmartPointer<vtkIntArray> fixedMaskArray =
-      vtkSmartPointer<vtkIntArray>::New();
-  fixedMaskArray->SetName("fixed_mask");
-  fixedMaskArray->SetNumberOfComponents(3);
-
-  auto fixedDimensionsArray = vtkSmartPointer<vtkIntArray>::New();
-  fixedDimensionsArray->SetName("fixed_dimensions");
-  fixedDimensionsArray->SetNumberOfComponents(1);
-
-  for (vtkIdType i = 0; i < static_cast<vtkIdType>(fixedMasks.size()); ++i) {
-    const auto &mask = fixedMasks[i].cast<double>();
-
-    const double values[3] = {mask[0], mask[1], mask[2]};
-    fixedMaskArray->InsertNextTuple(values);
-
-    const int count = mask[0] + mask[1] + mask[2];
-    fixedDimensionsArray->InsertNextValue(count);
-  }
-
-  grid->GetPointData()->AddArray(fixedMaskArray);
-  grid->GetPointData()->AddArray(fixedDimensionsArray);
 
   // Add tetrahedra.
   for (vtkIdType i = 0; i < static_cast<vtkIdType>(vertices.size()); i += 4) {

@@ -8,6 +8,7 @@
 const double mind = std::numeric_limits<double>::min();
 const double maxd = std::numeric_limits<double>::max();
 
+const size_t NB_CUBE_CORNER = 8;
 const size_t DIMENSION = 3;
 const size_t NB_NODE_PER_FACE = 3;
 const size_t NB_NODE_PER_TET = 4;

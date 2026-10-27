@@ -5,8 +5,6 @@
 #include <Eigen/Eigen>
 #include <array>
 #include <cmath>
-#include <iostream>
-#include <random>
 
 void fillRandomPermutations(std::vector<Eigen::Matrix3d> &frames,
                             TetrahedralMesh &mesh) {
