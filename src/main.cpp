@@ -2,6 +2,7 @@
 #include "edge_graph.hpp"
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
+#include "mesh_saver.hpp"
 #include "shape_functions.hpp"
 #include <Eigen/Core>
 #include <Eigen/IterativeLinearSolvers>
@@ -31,6 +32,31 @@ int main(int argc, char *argv[]) {
   AdjacencyWeight weightX = computeWeights(g, Vertex(1, 0, 0));
   AdjacencyWeight weightY = computeWeights(g, Vertex(0, 1, 0));
   AdjacencyWeight weightZ = computeWeights(g, Vertex(0, 0, 1));
+
+  std::cout << "PATH : ";
+  size_t startNode = 0;
+  std::cout << startNode << " " << std::endl;
+  std::vector<size_t> res = shortestPath(g, weightX, startNode);
+  std::vector<bool> edgeIncluded(mesh.edges.size(), false);
+  for (size_t i = 1; i < res.size(); i++) {
+    size_t e = res[i];
+    size_t next = res[i - 1];
+    std::cout << mesh.edges[e][0] << " " << std::endl;
+    edgeIncluded[e] = true;
+
+    std::cout << "WEIGHT ONE WAY " << g.getWeight(weightX, e, next)
+              << std::endl;
+    std::cout << "WEIGHT OTHER WAY " << g.getWeight(weightX, e, next)
+              << std::endl;
+  }
+
+  std::cout << std::endl;
+
+  MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets, "path.vtu");
+  saver.addField<ElementType::Edge>("included", edgeIncluded);
+  saver.save();
+
+  return 0;
 
   // In the order
   // Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),

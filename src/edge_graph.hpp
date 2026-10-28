@@ -19,18 +19,21 @@ private:
   void buildGraph();
 
 public:
-  std::vector<Vertex> nodeToVertex;
-  std::vector<std::array<MeshNodeId, 2>> nodeToMeshNodes;
-
-  std::vector<std::vector<std::tuple<GraphNodeId, MeshFaceId>>> adjacency;
+  std::vector<std::vector<std::pair<GraphNodeId, MeshFaceId>>> adjacency;
 
   TetrahedralMesh &mesh;
 
-  EdgeGraph(TetrahedralMesh &m) : mesh(m) { buildGraph(); }
-  size_t nbNode() { return nodeToVertex.size(); };
+  EdgeGraph(TetrahedralMesh &m) : mesh(m), adjacency(m.edges.size()) {
+    buildGraph();
+  }
+  size_t nbNode() { return adjacency.size(); };
+  double getWeight(AdjacencyWeight &w, size_t from, size_t to);
 };
 
 AdjacencyWeight computeWeights(EdgeGraph &graph, Vertex axis,
-                               double strictnessFactor = 10);
+                               double strictnessFactor = 2);
+
+std::vector<size_t> shortestPath(EdgeGraph &g, AdjacencyWeight &weights,
+                                 size_t startingNode);
 
 #endif

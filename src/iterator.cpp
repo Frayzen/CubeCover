@@ -142,5 +142,7 @@ void CubeCoverIterator::saveMesh(std::string path) {
     val << x[base], x[base + 1], x[base + 2];
     vertices.push_back(val);
   }
-  saveMeshVtk(vertices, mesh.tets, frames, path);
+  MeshSaver saver(vertices, mesh.tets, path);
+  saver.addField<ElementType::Cell>("frames", frames);
+  saver.save();
 }

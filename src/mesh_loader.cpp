@@ -1,16 +1,27 @@
 #include "mesh_loader.hpp"
 #include "constants.hpp"
-#include <Eigen/Core>
+
 #include <Eigen/Eigen>
-#include <cstdlib>
+#include <algorithm>
+#include <array>
 #include <filesystem>
 #include <iostream>
-#include <vtkNew.h>
+#include <map>
+#include <stdexcept>
+#include <utility>
+
+#include <vtkCell.h>
+#include <vtkCellType.h>
+#include <vtkErrorCode.h>
 #include <vtkPoints.h>
 #include <vtkSmartPointer.h>
 #include <vtkUnstructuredGrid.h>
 #include <vtkUnstructuredGridReader.h>
 #include <vtkXMLUnstructuredGridReader.h>
+
+// ------------------------------------------------------------
+// Read VTK grid
+// ------------------------------------------------------------
 
 static vtkSmartPointer<vtkUnstructuredGrid> readGrid(const std::string &path) {
   const std::filesystem::path filePath(path);
@@ -18,192 +29,286 @@ static vtkSmartPointer<vtkUnstructuredGrid> readGrid(const std::string &path) {
 
   if (extension == ".vtu" || extension == ".VTU") {
     auto reader = vtkSmartPointer<vtkXMLUnstructuredGridReader>::New();
+
     reader->SetFileName(path.c_str());
     reader->Update();
 
+    if (reader->GetErrorCode() != vtkErrorCode::NoError)
+      return nullptr;
+
     auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
     grid->DeepCopy(reader->GetOutput());
+
     return grid;
   }
 
   if (extension == ".vtk" || extension == ".VTK") {
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
+
     reader->SetFileName(path.c_str());
     reader->Update();
 
+    if (reader->GetErrorCode() != vtkErrorCode::NoError)
+      return nullptr;
+
     auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
     grid->DeepCopy(reader->GetOutput());
+
     return grid;
   }
 
-  std::cerr << "Error: unsupported file extension '" << extension
-            << "'. Supported inputs are .vtu and legacy .vtk "
-               "unstructured-grid files.\n";
+  std::cerr << "Unsupported mesh extension: " << extension << '\n';
   return nullptr;
 }
 
-#include <algorithm>
-#include <map>
+// ------------------------------------------------------------
+// Load tetrahedral mesh
+// ------------------------------------------------------------
 
 bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   auto grid = readGrid(path);
+
   if (!grid) {
+    std::cerr << "Failed to read mesh: " << path << '\n';
     return false;
   }
 
-  if (grid->GetNumberOfPoints() == 0) {
-    std::cerr << "Error: mesh contains no points or could not be read.\n";
+  const vtkIdType nbPoints = grid->GetNumberOfPoints();
+  const vtkIdType nbCells = grid->GetNumberOfCells();
+
+  if (nbPoints == 0 || nbCells == 0) {
+    std::cerr << "Mesh contains no points or cells.\n";
     return false;
   }
 
-  if (grid->GetNumberOfCells() == 0) {
-    std::cerr << "Error: mesh contains no cells or could not be read.\n";
-    return false;
-  }
+  // --------------------------------------------------------
+  // Validate input
+  // --------------------------------------------------------
 
-  // Validate all cells first
-  for (vtkIdType cellId = 0; cellId < grid->GetNumberOfCells(); ++cellId) {
-    const size_t cellType = grid->GetCellType(cellId);
-    if (cellType != VTK_TETRA) {
-      // std::cerr << "Error: cell " << cellId << " has VTK cell type " <<
-      // cellType
-      //           << "; expected VTK_TETRA (" << VTK_TETRA << ").\n";
-      // return false;
-      continue;
+  for (vtkIdType cellId = 0; cellId < nbCells; ++cellId) {
+    if (grid->GetCellType(cellId) != VTK_TETRA) {
+      std::cerr << "Cell " << cellId << " is not a tetrahedron.\n";
+      return false;
     }
 
     vtkCell *cell = grid->GetCell(cellId);
-    if (cell == nullptr || cell->GetNumberOfPoints() != 4) {
-      std::cerr << "Error: cell " << cellId
-                << " is not a valid four-node tetrahedron.\n";
+
+    if (!cell || cell->GetNumberOfPoints() != NB_NODE_PER_TET ||
+        cell->GetNumberOfFaces() != 4) {
+      std::cerr << "Invalid tetrahedron at cell " << cellId << ".\n";
       return false;
     }
   }
 
   TetrahedralMesh candidate;
   candidate.amountInternalFace = 0;
-  vtkPoints *points = grid->GetPoints();
-  candidate.vertices.reserve(
-      static_cast<std::size_t>(grid->GetNumberOfPoints()));
 
-  for (vtkIdType pointId = 0; pointId < grid->GetNumberOfPoints(); ++pointId) {
+  // --------------------------------------------------------
+  // Load vertices
+  // --------------------------------------------------------
+
+  candidate.vertices.reserve(static_cast<size_t>(nbPoints));
+
+  vtkPoints *points = grid->GetPoints();
+
+  for (vtkIdType pointId = 0; pointId < nbPoints; ++pointId) {
     double p[3];
     points->GetPoint(pointId, p);
-    candidate.vertices.push_back(Vertex{p[0], p[1], p[2]});
+
+    candidate.vertices.emplace_back(Vertex{p[0], p[1], p[2]});
   }
 
-  candidate.tets.reserve(static_cast<std::size_t>(grid->GetNumberOfCells()));
+  // --------------------------------------------------------
+  // Load tetrahedra
+  // --------------------------------------------------------
 
-  // Map to keep track of unique faces: sorted face vertex IDs -> list of
-  // adjacent cell IDs
-  std::map<std::array<vtkIdType, 3>, std::array<ssize_t, 2>> faceMap;
+  candidate.tets.reserve(static_cast<size_t>(nbCells));
+  candidate.tetToFaces.resize(static_cast<size_t>(nbCells));
 
-  for (vtkIdType cellId = 0; cellId < grid->GetNumberOfCells(); ++cellId) {
+  // Initialize tet-to-face connectivity.
+  for (auto &faces : candidate.tetToFaces) {
+    faces.fill(UNDEFINED_ELEMENT);
+  }
+
+  // Maps a sorted face vertex triplet to its global face ID.
+  std::map<std::array<vtkIdType, 3>, size_t> faceMap;
+
+  for (vtkIdType cellId = 0; cellId < nbCells; ++cellId) {
     vtkCell *cell = grid->GetCell(cellId);
-    Tetrahedron tet{};
 
-    for (size_t localId = 0; localId < 4; ++localId) {
-      const vtkIdType pointId = cell->GetPointId(localId);
-      if (pointId < 0 || pointId >= grid->GetNumberOfPoints()) {
-        std::cerr << "Error: tetrahedron " << cellId
-                  << " references an invalid posize_t index.\n";
+    Tetrahedron tet;
+
+    for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
+      const vtkIdType pointId = cell->GetPointId(i);
+
+      if (pointId < 0 || pointId >= nbPoints) {
+        std::cerr << "Invalid vertex index in tetrahedron " << cellId << ".\n";
         return false;
       }
-      tet[static_cast<std::size_t>(localId)] = pointId;
+
+      tet[i] = pointId;
     }
 
     candidate.tets.push_back(tet);
-    candidate.tetToFaces.push_back({UNDEFINED_ELEMENT, UNDEFINED_ELEMENT,
-                                    UNDEFINED_ELEMENT, UNDEFINED_ELEMENT});
 
-    // Extract the 4 faces of the tetrahedron and register cell adjacency
-    for (size_t faceId = 0; faceId < cell->GetNumberOfFaces(); ++faceId) {
-      vtkCell *face = cell->GetFace(faceId);
+    // ----------------------------------------------------
+    // Extract the four faces of this tetrahedron.
+    // ----------------------------------------------------
 
-      if (face == nullptr || face->GetNumberOfPoints() != 3) {
-        std::cerr << "Error: invalid face in tetrahedron " << cellId << '\n';
+    for (size_t localFaceId = 0; localFaceId < 4; ++localFaceId) {
+      vtkCell *vtkFace = cell->GetFace(localFaceId);
+
+      if (!vtkFace || vtkFace->GetNumberOfPoints() != 3) {
+        std::cerr << "Invalid face in tetrahedron " << cellId << ".\n";
         return false;
       }
 
-      std::array<vtkIdType, 3> f_keys = {
-          face->GetPointId(0), face->GetPointId(1), face->GetPointId(2)};
+      std::array<vtkIdType, 3> key = {vtkFace->GetPointId(0),
+                                      vtkFace->GetPointId(1),
+                                      vtkFace->GetPointId(2)};
 
-      // the key is independent of traversal order
-      std::sort(f_keys.begin(), f_keys.end());
+      // The key is independent of face orientation.
+      std::sort(key.begin(), key.end());
 
-      auto it = faceMap.find(f_keys);
+      auto it = faceMap.find(key);
+
+      size_t faceId;
+
       if (it == faceMap.end()) {
-        std::array<ssize_t, 2> value{cellId, UNDEFINED_ELEMENT};
-        faceMap.emplace(f_keys, value);
+        // First tetrahedron adjacent to this face.
+        faceId = candidate.faces.size();
+
+        Face face;
+        face.vertices = key;
+        face.adjacentCells = {static_cast<ssize_t>(cellId), UNDEFINED_ELEMENT};
+
+        candidate.faces.push_back(face);
+        faceMap.emplace(key, faceId);
       } else {
-        if (it->second[1] != UNDEFINED_ELEMENT) {
-          std::cerr << "Error: non-manifold face shared by "
-                    << "more than two tetrahedra.\n";
+        faceId = it->second;
+
+        Face &face = candidate.faces[faceId];
+
+        if (face.adjacentCells[1] != UNDEFINED_ELEMENT) {
+          std::cerr << "Non-manifold face shared by more "
+                       "than two tetrahedra.\n";
           return false;
         }
 
-        it->second[1] = cellId;
+        // Second tetrahedron adjacent to this face.
+        face.adjacentCells[1] = static_cast<ssize_t>(cellId);
+
         candidate.amountInternalFace++;
       }
+
+      // Preserve the local face ordering of the tetrahedron.
+      candidate.tetToFaces[cellId][localFaceId] = static_cast<ssize_t>(faceId);
     }
   }
 
-  // Populate candidate faces from the aggregated map
-  size_t tetCompleteCounter = 0;
-  candidate.faces.reserve(faceMap.size());
-  for (const auto &[f_keys, adjacentCells] : faceMap) {
-    candidate.faces.push_back(Face{f_keys, adjacentCells});
-    for (size_t tetId : adjacentCells) {
-      if (tetId == UNDEFINED_ELEMENT)
-        continue;
-      auto &faces = candidate.tetToFaces[tetId];
-      size_t i = 0;
-      while (i < faces.size() && faces[i] != UNDEFINED_ELEMENT) {
-        i++;
+  // --------------------------------------------------------
+  // Build unique edges and face-to-edge connectivity
+  // --------------------------------------------------------
+
+  // Maps a sorted vertex pair to its global edge ID.
+  std::map<std::array<vtkIdType, 2>, size_t> edgeMap;
+
+  candidate.faceToEdges.resize(candidate.faces.size());
+
+  for (size_t faceId = 0; faceId < candidate.faces.size(); ++faceId) {
+    const Face &face = candidate.faces[faceId];
+
+    auto &faceEdges = candidate.faceToEdges[faceId];
+    faceEdges.reserve(3);
+
+    // Three edges per triangular face.
+    constexpr std::array<std::array<size_t, 2>, 3> localEdges = {
+        {{{0, 1}}, {{1, 2}}, {{2, 0}}}};
+
+    for (const auto &localEdge : localEdges) {
+      vtkIdType a = face.vertices[localEdge[0]];
+      vtkIdType b = face.vertices[localEdge[1]];
+
+      std::array<vtkIdType, 2> key = {std::min(a, b), std::max(a, b)};
+
+      auto it = edgeMap.find(key);
+
+      size_t edgeId;
+
+      if (it == edgeMap.end()) {
+        edgeId = candidate.edges.size();
+
+        Edge edge;
+        edge.v = key;
+
+        candidate.edges.push_back(edge);
+        edgeMap.emplace(key, edgeId);
+      } else {
+        edgeId = it->second;
       }
-      assert(i < faces.size());
-      faces[i] = candidate.faces.size() - 1;
-      if (i == faces.size() - 1)
-        tetCompleteCounter++;
+
+      faceEdges.push_back(edgeId);
     }
   }
-  // assert(tetCompleteCounter == candidate.tets.size());
+
+  // --------------------------------------------------------
+  // Commit result
+  // --------------------------------------------------------
 
   output = std::move(candidate);
+
   return true;
 }
 
+// ------------------------------------------------------------
+// Face normal
+// ------------------------------------------------------------
+
 Vertex Face::computeNormal(TetrahedralMesh &m) {
-  // Get face vertices
   const Vertex &p0 = m.vertices[vertices[0]];
   const Vertex &p1 = m.vertices[vertices[1]];
   const Vertex &p2 = m.vertices[vertices[2]];
 
-  // Compute normal using cross product
   Vertex normal = (p1 - p0).cross(p2 - p0);
 
-  // Check for degenerate face
-  const auto norm = normal.norm();
+  const double norm = normal.norm();
+
   if (norm < 1e-12)
     throw std::runtime_error("Degenerate face: cannot compute normal");
 
   normal /= norm;
 
-  // Compute face barycenter
   const Vertex faceCenter = (p0 + p1 + p2) / 3.0;
 
-  // Find a valid adjacent tetrahedron
-  ssize_t cellId = adjacentCells[0];
+  const ssize_t cellId = adjacentCells[0];
 
   if (cellId == UNDEFINED_ELEMENT)
     throw std::runtime_error("Face has no adjacent tetrahedron");
 
-  // Compute tetrahedron barycenter
   const Vertex tetCenter = m.tets[cellId].getBarycenter(m.vertices);
 
-  // Ensure normal points outward from the tetrahedron
   if (normal.dot(tetCenter - faceCenter) > 0.0)
     normal = -normal;
 
   return normal;
 }
+
+// ------------------------------------------------------------
+// Tetrahedron barycenter
+// ------------------------------------------------------------
+
+Vertex Tetrahedron::getBarycenter(std::vector<Vertex> &meshVertices) const {
+  Vertex res = Vertex::Zero();
+
+  for (size_t i = 0; i < NB_NODE_PER_TET; ++i)
+    res += meshVertices[v[i]];
+
+  return res / static_cast<double>(NB_NODE_PER_TET);
+}
+
+Vertex Edge::computeCenter(TetrahedralMesh &m) const {
+  Vertex res = Vertex::Zero();
+  for (size_t i = 0; i < v.size(); ++i)
+    res += m.vertices[v[i]];
+  return res / static_cast<double>(v.size());
+};
