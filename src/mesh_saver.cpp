@@ -1,4 +1,6 @@
 #include "mesh_saver.hpp"
+#include "mesh_loader.hpp"
+#include "vertex.hpp"
 #include <stdexcept>
 
 #include <vtkIntArray.h>
@@ -33,17 +35,11 @@
 #include <string>
 #include <vector>
 
-void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
+void saveMeshVtk(const std::vector<Vertex> &vertices,
+                 const std::vector<Tetrahedron> &tets,
                  const std::vector<Eigen::Matrix3d> &frames,
                  const std::string &path) {
-  if (vertices.size() % 4 != 0) {
-    throw std::invalid_argument(
-        "The number of vertices must be a multiple of 4.");
-  }
-
-  const std::size_t numTetrahedra = vertices.size() / 4;
-
-  if (frames.size() != numTetrahedra) {
+  if (frames.size() != tets.size()) {
     throw std::invalid_argument(
         "The number of frames must match the number of tetrahedra.");
   }
@@ -51,55 +47,55 @@ void saveMeshVtk(const std::vector<Eigen::Vector3d> &vertices,
   auto points = vtkSmartPointer<vtkPoints>::New();
   auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
 
-  // Add vertices.
+  // Add unique mesh vertices.
   for (const auto &v : vertices) {
     points->InsertNextPoint(v.x(), v.y(), v.z());
   }
 
   grid->SetPoints(points);
 
-  // Add tetrahedra.
-  for (vtkIdType i = 0; i < static_cast<vtkIdType>(vertices.size()); i += 4) {
-    vtkIdType ids[4] = {i, i + 1, i + 2, i + 3};
-    grid->InsertNextCell(VTK_TETRA, 4, ids);
+  // Add tetrahedra using mesh connectivity.
+  for (const auto &t : tets) {
+    vtkIdType ids[NB_NODE_PER_TET];
+
+    for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
+      if (t[i] >= vertices.size()) {
+        throw std::out_of_range("Invalid tetrahedron vertex index.");
+      }
+
+      ids[i] = static_cast<vtkIdType>(t[i]);
+    }
+
+    grid->InsertNextCell(VTK_TETRA, NB_NODE_PER_TET, ids);
   }
 
-  // Create three vector arrays, one for each frame column.
-  auto col0 = vtkSmartPointer<vtkDoubleArray>::New();
-  auto col1 = vtkSmartPointer<vtkDoubleArray>::New();
-  auto col2 = vtkSmartPointer<vtkDoubleArray>::New();
+  // Create frame arrays.
+  std::array<vtkSmartPointer<vtkDoubleArray>, 3> frameArrays;
 
-  col0->SetName("frame_col0");
-  col1->SetName("frame_col1");
-  col2->SetName("frame_col2");
-
-  col0->SetNumberOfComponents(3);
-  col1->SetNumberOfComponents(3);
-  col2->SetNumberOfComponents(3);
-
-  col0->SetNumberOfTuples(static_cast<vtkIdType>(frames.size()));
-  col1->SetNumberOfTuples(static_cast<vtkIdType>(frames.size()));
-  col2->SetNumberOfTuples(static_cast<vtkIdType>(frames.size()));
+  for (size_t j = 0; j < 3; ++j) {
+    frameArrays[j] = vtkSmartPointer<vtkDoubleArray>::New();
+    frameArrays[j]->SetName(("frame_col" + std::to_string(j)).c_str());
+    frameArrays[j]->SetNumberOfComponents(3);
+    frameArrays[j]->SetNumberOfTuples(static_cast<vtkIdType>(frames.size()));
+  }
 
   for (vtkIdType i = 0; i < static_cast<vtkIdType>(frames.size()); ++i) {
     const Eigen::Matrix3d &F = frames[i];
 
-    const double v0[3] = {F(0, 0), F(1, 0), F(2, 0)};
-    const double v1[3] = {F(0, 1), F(1, 1), F(2, 1)};
-    const double v2[3] = {F(0, 2), F(1, 2), F(2, 2)};
+    for (size_t j = 0; j < 3; ++j) {
+      const double v[3] = {F(0, j), F(1, j), F(2, j)};
 
-    col0->SetTuple(i, v0);
-    col1->SetTuple(i, v1);
-    col2->SetTuple(i, v2);
+      frameArrays[j]->SetTuple(i, v);
+    }
   }
 
-  // Store vectors as cell data.
-  grid->GetCellData()->AddArray(col0);
-  grid->GetCellData()->AddArray(col1);
-  grid->GetCellData()->AddArray(col2);
+  // Store frames as cell data.
+  for (auto &array : frameArrays) {
+    grid->GetCellData()->AddArray(array);
+  }
 
-  // Write VTK mesh.
   auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
+
   writer->SetFileName(path.c_str());
   writer->SetInputData(grid);
   writer->SetDataModeToBinary();

@@ -46,34 +46,30 @@ int main(int argc, char *argv[]) {
   // std::array<size_t, NB_CUBE_CORNER> = {3, 15, 14, 1, 7, 11, 10, 9};
 
   std::array<Vertex, NB_CUBE_CORNER> corners;
-  for (size_t i = 0; i < NB_CUBE_CORNER; i++)
+  for (size_t i = 0; i < NB_CUBE_CORNER; i++) {
     corners[i] = mesh.vertices[cornerIds[i]];
+    std::cout << corners[i].transpose() << std::endl;
+  }
 
   // FRAME FIELD
-
-  // Eigen::Matrix3d frame;
-  // Shear cube
-  // frame.col(0) << 1, 0, -0.2;
-  // frame.col(1) << 0, 1, -0.2;
-  // frame.col(2) << 0, 0, 1;
-
-  // Hole cube
-  // frame.col(0) << 1, 0, 0;
-  // frame.col(1) << 0, 3 * 0.165, 0;
-  // frame.col(2) << 0, 0, 1;
-
-  // for (size_t i = 0; i < DIMENSION; i++)
-  //   frame.col(i) /=
 
   std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
 
   for (size_t t = 0; t < mesh.tets.size(); t++) {
     auto &tet = mesh.tets[t];
+    // TODO: investigate order given to jacobian to minimize the rotation
+    // then we can apply rotation
     Eigen::Matrix3d jacobian =
         computeHexaJacobian(corners, tet.getBarycenter(mesh.vertices));
-    // frames[t] = jacobian.transpose().inverse();
-    frames[t] = Eigen::Matrix3d::Identity();
+    frames[t] = jacobian.inverse();
+    // frames[t] = Eigen::Matrix3d::Identity();
   }
+  // for (Face &f : mesh.faces) {
+  //   if (f.adjacentCells[1] != UNDEFINED_ELEMENT)
+  //     continue; // NOT BOUNDARY
+  //   size_t cell = f.adjacentCells[0];
+  //   frames[cell] = Eigen::Matrix3d::Identity();
+  // }
 
   std::cout << "Loaded tetrahedral mesh successfully.\n"
             << "Vertices: " << mesh.vertices.size() << '\n'
