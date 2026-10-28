@@ -20,7 +20,7 @@ public:
   CubeCoverIterator(TetrahedralMesh &m, std::vector<Eigen::Matrix3d> &frames,
                     std::array<size_t, NB_CUBE_CORNER> cornerIds)
       : mesh(m), frames(frames), sizeLaplace(mesh.vertices.size() * DIMENSION),
-        sizeConstraint(3 * 6), cornerIds(cornerIds) {
+        sizeConstraint(3 * 0 + 3), cornerIds(cornerIds) {
     const size_t N = sizeLaplace + sizeConstraint;
     // const size_t N = sizeLaplace;
 

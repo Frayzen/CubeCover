@@ -59,8 +59,8 @@ Eigen::Matrix3d computeHexaJacobian(const std::array<Vertex, 8> &nodes,
   const double eta = refPoint.y();
   const double zeta = refPoint.z();
 
-  const int signs[8][3] = {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
-                           {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1}};
+  const int signs[8][3] = {{-1, -1, -1}, {-1, -1, 1}, {-1, 1, 1}, {-1, 1, -1},
+                           {1, -1, -1},  {1, -1, 1},  {1, 1, 1},  {1, 1, -1}};
 
   Eigen::Matrix3d J = Eigen::Matrix3d::Zero();
 
