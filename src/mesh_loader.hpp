@@ -36,9 +36,13 @@ struct Tetrahedron {
   }
 };
 
+class TetrahedralMesh;
+
 struct Face {
   std::array<vtkIdType, 3> vertices;
   std::array<ssize_t, 2> adjacentCells;
+
+  Vertex computeNormal(TetrahedralMesh &m);
 };
 
 struct TetrahedralMesh {

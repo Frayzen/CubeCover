@@ -1,4 +1,5 @@
 #include "constants.hpp"
+#include "edge_graph.hpp"
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
 #include "shape_functions.hpp"
@@ -25,6 +26,11 @@ int main(int argc, char *argv[]) {
   if (!loadTetrahedralMesh(argv[1], mesh)) {
     return EXIT_FAILURE;
   }
+
+  EdgeGraph g(mesh);
+  AdjacencyWeight weightX = computeWeights(g, Vertex(1, 0, 0));
+  AdjacencyWeight weightY = computeWeights(g, Vertex(0, 1, 0));
+  AdjacencyWeight weightZ = computeWeights(g, Vertex(0, 0, 1));
 
   // In the order
   // Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),

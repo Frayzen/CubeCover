@@ -1,5 +1,7 @@
 #include "mesh_loader.hpp"
 #include "constants.hpp"
+#include <Eigen/Core>
+#include <Eigen/Eigen>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -169,4 +171,39 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
 
   output = std::move(candidate);
   return true;
+}
+
+Vertex Face::computeNormal(TetrahedralMesh &m) {
+  // Get face vertices
+  const Vertex &p0 = m.vertices[vertices[0]];
+  const Vertex &p1 = m.vertices[vertices[1]];
+  const Vertex &p2 = m.vertices[vertices[2]];
+
+  // Compute normal using cross product
+  Vertex normal = (p1 - p0).cross(p2 - p0);
+
+  // Check for degenerate face
+  const auto norm = normal.norm();
+  if (norm < 1e-12)
+    throw std::runtime_error("Degenerate face: cannot compute normal");
+
+  normal /= norm;
+
+  // Compute face barycenter
+  const Vertex faceCenter = (p0 + p1 + p2) / 3.0;
+
+  // Find a valid adjacent tetrahedron
+  ssize_t cellId = adjacentCells[0];
+
+  if (cellId == UNDEFINED_ELEMENT)
+    throw std::runtime_error("Face has no adjacent tetrahedron");
+
+  // Compute tetrahedron barycenter
+  const Vertex tetCenter = m.tets[cellId].getBarycenter(m.vertices);
+
+  // Ensure normal points outward from the tetrahedron
+  if (normal.dot(tetCenter - faceCenter) > 0.0)
+    normal = -normal;
+
+  return normal;
 }
