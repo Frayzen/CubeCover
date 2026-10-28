@@ -31,10 +31,13 @@ int main(int argc, char *argv[]) {
   // Vertex(1, 0, 0), Vertex(1, 0, 1), Vertex(1, 1, 1), Vertex(1, 1, 0),
 
   // Shear cube
-  // size_t nodeId[NB_CUBE_CORNER] = {0, 1, 7, 6, 2, 3, 5, 4};
+  std::array<size_t, NB_CUBE_CORNER> cornerIds = {0, 1, 7, 6, 2, 3, 5, 4};
 
-  std::array<size_t, NB_CUBE_CORNER> cornerIds = {3, 15, 14, 2, 7, 11, 10, 6};
-  // size_t nodeId[NB_CUBE_CORNER] = {3, 15, 14, 1, 7, 11, 10, 9};
+  // Hole cube
+  // std::array<size_t, NB_CUBE_CORNER> cornerIds = {3, 15, 14, 2, 7, 11, 10,
+  // 6};
+  //
+  // std::array<size_t, NB_CUBE_CORNER> = {3, 15, 14, 1, 7, 11, 10, 9};
 
   std::array<Vertex, NB_CUBE_CORNER> corners;
   for (size_t i = 0; i < NB_CUBE_CORNER; i++)
@@ -62,7 +65,7 @@ int main(int argc, char *argv[]) {
     auto &tet = mesh.tets[t];
     Eigen::Matrix3d jacobian =
         computeHexaJacobian(corners, tet.getBarycenter(mesh.vertices));
-    // frames[t] = jacobian.inverse();
+    // frames[t] = jacobian.transpose().inverse();
     frames[t] = Eigen::Matrix3d::Identity();
   }
 
