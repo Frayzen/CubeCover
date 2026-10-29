@@ -6,7 +6,7 @@
 
 void EdgeGraph::buildGraph() {
   adjacency.clear();
-  adjacency.resize(mesh.edges.size());
+  adjacency.resize(mesh.nbBoundaryEdge);
   std::map<std::array<vtkIdType, 2>, size_t> edgeMap;
   size_t edgeId = 0;
   for (size_t faceId = 0; faceId < mesh.faces.size(); faceId++) {
@@ -40,9 +40,6 @@ AdjacencyWeight computeWeights(EdgeGraph &graph, Vertex axis,
   std::vector<std::vector<double>> res(graph.adjacency.size());
 
   for (GraphNodeId nodeId = 0; nodeId < graph.nbNode(); nodeId++) {
-    if (graph.adjacency[nodeId].empty())
-      continue;
-
     Vertex p = mesh.edges[nodeId].computeCenter(mesh);
     std::vector<double> nodeWeights;
 
@@ -57,14 +54,6 @@ AdjacencyWeight computeWeights(EdgeGraph &graph, Vertex axis,
 
       double w = acos(cosine);
       w = pow(w, strictnessFactor);
-
-      if (adjacentNodeId == 0) {
-        std::cout << "1) GOT W FOR " << nodeId << " = " << w << std::endl;
-      }
-      if (nodeId == 0) {
-        std::cout << "2) GOT W FOR " << adjacentNodeId << " = " << w
-                  << std::endl;
-      }
 
       nodeWeights.push_back(w);
     }

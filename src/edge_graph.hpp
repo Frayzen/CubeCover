@@ -31,7 +31,7 @@ public:
 };
 
 AdjacencyWeight computeWeights(EdgeGraph &graph, Vertex axis,
-                               double strictnessFactor = 2);
+                               double strictnessFactor = 10);
 
 std::vector<size_t> shortestPath(EdgeGraph &g, AdjacencyWeight &weights,
                                  size_t startingNode);

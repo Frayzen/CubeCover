@@ -19,6 +19,7 @@ struct Edge {
   const vtkIdType &operator[](size_t i) const { return v[i]; }
   vtkIdType &operator[](size_t i) { return v[i]; }
   Vertex computeCenter(TetrahedralMesh &m) const;
+  Vertex computeDir(TetrahedralMesh &m) const;
 };
 
 struct Tetrahedron {
@@ -50,7 +51,8 @@ struct TetrahedralMesh {
   std::vector<Vertex> vertices;
   std::vector<Tetrahedron> tets;
   std::vector<Face> faces;
-  std::vector<Edge> edges;
+  size_t nbBoundaryEdge;
+  std::vector<Edge> edges; // boundary edges at the start
   std::vector<std::array<ssize_t, 4>> tetToFaces;
   std::vector<std::vector<size_t>> faceToEdges;
   size_t amountInternalFace;

@@ -9,6 +9,8 @@
 
 #include <Eigen/Eigen>
 #include <Eigen/Eigenvalues>
+#include <cmath>
+#include <cstdlib>
 #include <exception>
 #include <iostream>
 
@@ -29,32 +31,51 @@ int main(int argc, char *argv[]) {
   }
 
   EdgeGraph g(mesh);
-  AdjacencyWeight weightX = computeWeights(g, Vertex(1, 0, 0));
-  AdjacencyWeight weightY = computeWeights(g, Vertex(0, 1, 0));
-  AdjacencyWeight weightZ = computeWeights(g, Vertex(0, 0, 1));
 
-  std::cout << "PATH : ";
-  size_t startNode = 0;
-  std::cout << startNode << " " << std::endl;
-  std::vector<size_t> res = shortestPath(g, weightX, startNode);
-  std::vector<bool> edgeIncluded(mesh.edges.size(), false);
-  for (size_t i = 1; i < res.size(); i++) {
-    size_t e = res[i];
-    size_t next = res[i - 1];
-    std::cout << mesh.edges[e][0] << " " << std::endl;
-    edgeIncluded[e] = true;
+  AdjacencyWeight weights[] = {
+      computeWeights(g, Vertex(1, 0, 0)),
+      computeWeights(g, Vertex(0, 1, 0)),
+      computeWeights(g, Vertex(0, 0, 1)),
+  };
 
-    std::cout << "WEIGHT ONE WAY " << g.getWeight(weightX, e, next)
-              << std::endl;
-    std::cout << "WEIGHT OTHER WAY " << g.getWeight(weightX, e, next)
-              << std::endl;
+  double scores[DIMENSION] = {0, 0, 0};
+  size_t startEdge[DIMENSION] = {0, 0, 0};
+  for (size_t i = 0; i < mesh.nbBoundaryEdge; i++) {
+    Edge &e = mesh.edges[i];
+    Vertex edgeDir = e.computeDir(mesh);
+    for (size_t d = 0; d < DIMENSION; d++) {
+      Vertex axis = Vertex::Zero();
+      axis[d] = 1;
+      double score = abs(axis.dot(edgeDir));
+      if (score > scores[d]) {
+        scores[d] = score;
+        startEdge[d] = i;
+      }
+    }
+  }
+
+  for (size_t i = 0; i < DIMENSION; i++) {
+    size_t startNode = startEdge[i];
+    std::vector<size_t> res = shortestPath(g, weights[i], startNode);
+    std::vector<bool> edgeIncluded(mesh.edges.size(), false);
+    for (size_t i = 1; i < res.size(); i++) {
+      size_t e = res[i];
+      size_t next = res[i - 1];
+      std::cout << mesh.edges[e][0] << " " << std::endl;
+      edgeIncluded[e] = true;
+      // std::cout << "WEIGHT ONE WAY " << g.getWeight(weightX, e, next)
+      //           << std::endl;
+      // std::cout << "WEIGHT OTHER WAY " << g.getWeight(weightX, e, next)
+      //           << std::endl;
+    }
+
+    MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets,
+                    "path" + std::to_string(static_cast<int>(i)) + ".vtu");
+    saver.addField<ElementType::Edge>("included", edgeIncluded);
+    saver.save();
   }
 
   std::cout << std::endl;
-
-  MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets, "path.vtu");
-  saver.addField<ElementType::Edge>("included", edgeIncluded);
-  saver.save();
 
   return 0;
 

@@ -65,6 +65,52 @@ static vtkSmartPointer<vtkUnstructuredGrid> readGrid(const std::string &path) {
 // Load tetrahedral mesh
 // ------------------------------------------------------------
 
+static void processEdges(TetrahedralMesh &candidate, bool boundaryEdges) {
+  std::map<std::array<vtkIdType, 2>, size_t> edgeMap;
+  for (size_t faceId = 0; faceId < candidate.faces.size(); ++faceId) {
+    bool isBoundary =
+        candidate.faces[faceId].adjacentCells[1] == UNDEFINED_ELEMENT;
+    if (boundaryEdges && !isBoundary)
+      continue;
+    if (!boundaryEdges && isBoundary)
+      continue;
+
+    const Face &face = candidate.faces[faceId];
+
+    auto &faceEdges = candidate.faceToEdges[faceId];
+    faceEdges.reserve(3);
+
+    // Three edges per triangular face.
+    constexpr std::array<std::array<size_t, 2>, 3> localEdges = {
+        {{{0, 1}}, {{1, 2}}, {{2, 0}}}};
+
+    for (const auto &localEdge : localEdges) {
+      vtkIdType a = face.vertices[localEdge[0]];
+      vtkIdType b = face.vertices[localEdge[1]];
+
+      std::array<vtkIdType, 2> key = {std::min(a, b), std::max(a, b)};
+
+      auto it = edgeMap.find(key);
+
+      size_t edgeId;
+
+      if (it == edgeMap.end()) {
+        edgeId = candidate.edges.size();
+
+        Edge edge;
+        edge.v = key;
+
+        candidate.edges.push_back(edge);
+        edgeMap.emplace(key, edgeId);
+      } else {
+        edgeId = it->second;
+      }
+
+      faceEdges.push_back(edgeId);
+    }
+  }
+}
+
 bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   auto grid = readGrid(path);
 
@@ -211,45 +257,12 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   // --------------------------------------------------------
 
   // Maps a sorted vertex pair to its global edge ID.
-  std::map<std::array<vtkIdType, 2>, size_t> edgeMap;
 
   candidate.faceToEdges.resize(candidate.faces.size());
 
-  for (size_t faceId = 0; faceId < candidate.faces.size(); ++faceId) {
-    const Face &face = candidate.faces[faceId];
-
-    auto &faceEdges = candidate.faceToEdges[faceId];
-    faceEdges.reserve(3);
-
-    // Three edges per triangular face.
-    constexpr std::array<std::array<size_t, 2>, 3> localEdges = {
-        {{{0, 1}}, {{1, 2}}, {{2, 0}}}};
-
-    for (const auto &localEdge : localEdges) {
-      vtkIdType a = face.vertices[localEdge[0]];
-      vtkIdType b = face.vertices[localEdge[1]];
-
-      std::array<vtkIdType, 2> key = {std::min(a, b), std::max(a, b)};
-
-      auto it = edgeMap.find(key);
-
-      size_t edgeId;
-
-      if (it == edgeMap.end()) {
-        edgeId = candidate.edges.size();
-
-        Edge edge;
-        edge.v = key;
-
-        candidate.edges.push_back(edge);
-        edgeMap.emplace(key, edgeId);
-      } else {
-        edgeId = it->second;
-      }
-
-      faceEdges.push_back(edgeId);
-    }
-  }
+  processEdges(candidate, true);
+  candidate.nbBoundaryEdge = candidate.edges.size();
+  processEdges(candidate, false);
 
   // --------------------------------------------------------
   // Commit result
@@ -311,4 +324,8 @@ Vertex Edge::computeCenter(TetrahedralMesh &m) const {
   for (size_t i = 0; i < v.size(); ++i)
     res += m.vertices[v[i]];
   return res / static_cast<double>(v.size());
+};
+
+Vertex Edge::computeDir(TetrahedralMesh &m) const {
+  return m.vertices[v[0]] - m.vertices[v[1]];
 };
