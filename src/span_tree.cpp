@@ -10,7 +10,7 @@
 std::vector<size_t> convertToSpanTree(TetrahedralMesh &mesh) {
   const size_t n = mesh.tets.size();
   std::vector<bool> visited(n, false);
-  std::vector<size_t> spanTree(mesh.amountInternalFace);
+  std::vector<size_t> spanTree(mesh.faces.size() - mesh.nbBoundaryFace);
   size_t curSpanTreeFace = 0;
   std::stack<size_t> pending;
   // const size_t root = 373;

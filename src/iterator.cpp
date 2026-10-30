@@ -144,5 +144,5 @@ void CubeCoverIterator::saveMesh(std::string path) {
   }
   MeshSaver saver(vertices, mesh.tets, path);
   saver.addField<ElementType::Cell>("frames", frames);
-  saver.save();
+  saver.saveMesh();
 }

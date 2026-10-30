@@ -4,6 +4,7 @@
 #include "mesh_loader.hpp"
 #include "vertex.hpp"
 
+#include "region_graph.hpp"
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -88,48 +89,7 @@ private:
 
 public:
   MeshSaver(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges,
-            const std::vector<Tetrahedron> &tets, const std::string &path)
-      : path(path), nbNodes(vertices.size()), nbCells(tets.size()) {
-    grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
-
-    auto points = vtkSmartPointer<vtkPoints>::New();
-
-    for (const auto &v : vertices) {
-      points->InsertNextPoint(v.x(), v.y(), v.z());
-    }
-
-    grid->SetPoints(points);
-
-    for (const auto &t : tets) {
-      vtkIdType ids[NB_NODE_PER_TET];
-
-      for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
-        if (t[i] >= vertices.size()) {
-          throw std::out_of_range("Invalid tetrahedron vertex index.");
-        }
-
-        ids[i] = static_cast<vtkIdType>(t[i]);
-      }
-
-      grid->InsertNextCell(VTK_TETRA, NB_NODE_PER_TET, ids);
-    }
-
-    nbEdges = edges.size();
-
-    edgeGrid = vtkSmartPointer<vtkPolyData>::New();
-    edgeGrid->SetPoints(points);
-
-    auto lines = vtkSmartPointer<vtkCellArray>::New();
-
-    for (const auto &edge : edges) {
-      vtkIdType ids[2] = {static_cast<vtkIdType>(edge[0]),
-                          static_cast<vtkIdType>(edge[1])};
-
-      lines->InsertNextCell(2, ids);
-    }
-
-    edgeGrid->SetLines(lines);
-  }
+            const std::vector<Tetrahedron> &tets, const std::string &path);
 
   MeshSaver(const std::vector<Vertex> &vertices,
             const std::vector<Tetrahedron> &tets, const std::string &path)
@@ -159,38 +119,12 @@ public:
     addFieldToArray(attributes, name, values);
   }
 
-  void save() const {
-    auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
+  void saveMesh() const;
 
-    writer->SetFileName(path.c_str());
-    writer->SetInputData(grid);
-    writer->SetDataModeToBinary();
-
-    if (writer->Write() != 1) {
-      throw std::runtime_error("Failed to write VTK mesh to " + path);
-    }
-
-    if (nbEdges > 0) {
-      std::string edgePath = path;
-
-      const auto pos = edgePath.rfind(".vtu");
-
-      if (pos != std::string::npos) {
-        edgePath.replace(pos, 4, "_edges.vtp");
-      } else {
-        edgePath += "_edges.vtp";
-      }
-
-      auto edgeWriter = vtkSmartPointer<vtkXMLPolyDataWriter>::New();
-
-      edgeWriter->SetFileName(edgePath.c_str());
-      edgeWriter->SetInputData(edgeGrid);
-      edgeWriter->SetDataModeToBinary();
-
-      if (edgeWriter->Write() != 1) {
-        throw std::runtime_error("Failed to write VTK edges to " + edgePath);
-      }
-    }
-  }
+  void saveEdges() const;
 };
+
+void savePaths(std::string filename, std::vector<Path> paths,
+               std::vector<Vertex> vertices);
+
 #endif

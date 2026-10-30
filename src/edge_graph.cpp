@@ -39,7 +39,7 @@ AdjacencyWeight computeWeights(EdgeGraph &graph, Vertex axis,
   TetrahedralMesh &mesh = graph.mesh;
   std::vector<std::vector<double>> res(graph.adjacency.size());
 
-  for (GraphNodeId nodeId = 0; nodeId < graph.nbNode(); nodeId++) {
+  for (MeshEdgeId nodeId = 0; nodeId < graph.nbNode(); nodeId++) {
     Vertex p = mesh.edges[nodeId].computeCenter(mesh);
     std::vector<double> nodeWeights;
 

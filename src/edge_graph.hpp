@@ -6,7 +6,7 @@
 using MeshNodeId = vtkIdType;
 using MeshFaceId = size_t;
 using GraphEdgeId = size_t;
-using GraphNodeId = size_t;
+using MeshEdgeId = size_t;
 using AdjacencyWeight = std::vector<std::vector<double>>;
 
 /*
@@ -19,7 +19,7 @@ private:
   void buildGraph();
 
 public:
-  std::vector<std::vector<std::pair<GraphNodeId, MeshFaceId>>> adjacency;
+  std::vector<std::vector<std::pair<MeshEdgeId, MeshFaceId>>> adjacency;
 
   TetrahedralMesh &mesh;
 

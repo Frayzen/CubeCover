@@ -29,6 +29,8 @@ target_link_libraries(CubeCover PRIVATE
     VTK::IOXML
 )
 
+# find_package(Kokkos 4.2 REQUIRED CONFIG)
+
 vtk_module_autoinit(
     TARGETS CubeCover
     MODULES

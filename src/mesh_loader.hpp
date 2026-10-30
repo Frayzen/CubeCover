@@ -14,24 +14,26 @@
 class TetrahedralMesh;
 
 struct Edge {
-  std::array<vtkIdType, 2> v;
-
-  const vtkIdType &operator[](size_t i) const { return v[i]; }
-  vtkIdType &operator[](size_t i) { return v[i]; }
+  std::array<size_t, 2> nodes;
+  Edge() {};
+  Edge(const std::array<size_t, 2> &nodes) : nodes(nodes) {}
+  const size_t &operator[](size_t i) const { return nodes[i]; }
+  size_t &operator[](size_t i) { return nodes[i]; }
   Vertex computeCenter(TetrahedralMesh &m) const;
   Vertex computeDir(TetrahedralMesh &m) const;
+  bool containsNode(size_t nodeId) const;
 };
 
 struct Tetrahedron {
   Tetrahedron() {}
-  Tetrahedron(std::array<vtkIdType, NB_NODE_PER_TET> v) : v(v) {}
-  std::array<vtkIdType, NB_NODE_PER_TET> v;
+  Tetrahedron(const std::array<size_t, NB_NODE_PER_TET> v) : nodes(v) {}
+  std::array<size_t, NB_NODE_PER_TET> nodes;
 
-  const vtkIdType &operator[](size_t i) const { return v[i]; }
-  vtkIdType &operator[](size_t i) { return v[i]; }
+  const size_t &operator[](size_t i) const { return nodes[i]; }
+  size_t &operator[](size_t i) { return nodes[i]; }
   size_t getLocalId(size_t nodeId) const {
     for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
-      if (v[i] == nodeId)
+      if (nodes[i] == nodeId)
         return i;
     }
     throw std::runtime_error("Face vertex not found in adjacent tetrahedron");
@@ -41,21 +43,29 @@ struct Tetrahedron {
 };
 
 struct Face {
-  std::array<vtkIdType, 3> vertices;
+  std::array<size_t, 3> nodes;
+  Face(const std::array<size_t, 3> nodes) : nodes(nodes) {}
   std::array<ssize_t, 2> adjacentCells;
 
   Vertex computeNormal(TetrahedralMesh &m);
 };
 
 struct TetrahedralMesh {
-  std::vector<Vertex> vertices;
-  std::vector<Tetrahedron> tets;
-  std::vector<Face> faces;
+  std::vector<Vertex> vertices;  // boundary vertices at the start
+  std::vector<Tetrahedron> tets; // boundary tets at the start
+  std::vector<Face> faces;       // boudnary faces at the start
+  std::vector<Edge> edges;       // boundary edges at the start
+  size_t nbBoundaryTet;
+  size_t nbBoundaryFace;
+  size_t nbBoundaryNode;
   size_t nbBoundaryEdge;
-  std::vector<Edge> edges; // boundary edges at the start
   std::vector<std::array<ssize_t, 4>> tetToFaces;
   std::vector<std::vector<size_t>> faceToEdges;
-  size_t amountInternalFace;
+  std::vector<std::array<ssize_t, 2>> edgeToBoundaryFaces;
+  std::vector<Vertex> getBoundaryVertices() {
+    return std::vector<Vertex>(vertices.begin(),
+                               vertices.begin() + nbBoundaryNode);
+  }
 };
 
 bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output);

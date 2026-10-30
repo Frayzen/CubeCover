@@ -3,6 +3,7 @@
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
 #include "mesh_saver.hpp"
+#include "region_graph.hpp"
 #include "shape_functions.hpp"
 #include <Eigen/Core>
 #include <Eigen/IterativeLinearSolvers>
@@ -38,6 +39,8 @@ int main(int argc, char *argv[]) {
       computeWeights(g, Vertex(0, 0, 1)),
   };
 
+  RegionGraph regionGraph(g);
+
   double scores[DIMENSION] = {0, 0, 0};
   size_t startEdge[DIMENSION] = {0, 0, 0};
   for (size_t i = 0; i < mesh.nbBoundaryEdge; i++) {
@@ -53,29 +56,24 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-
-  for (size_t i = 0; i < DIMENSION; i++) {
-    size_t startNode = startEdge[i];
-    std::vector<size_t> res = shortestPath(g, weights[i], startNode);
+  size_t i = 0;
+  for (size_t axis = 0; axis < DIMENSION; axis++) {
+    size_t startNode = startEdge[axis];
+    std::vector<size_t> res = shortestPath(g, weights[axis], startNode);
     std::vector<bool> edgeIncluded(mesh.edges.size(), false);
     for (size_t i = 1; i < res.size(); i++) {
       size_t e = res[i];
       size_t next = res[i - 1];
-      std::cout << mesh.edges[e][0] << " " << std::endl;
       edgeIncluded[e] = true;
-      // std::cout << "WEIGHT ONE WAY " << g.getWeight(weightX, e, next)
-      //           << std::endl;
-      // std::cout << "WEIGHT OTHER WAY " << g.getWeight(weightX, e, next)
-      //           << std::endl;
     }
-
-    MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets,
-                    "path" + std::to_string(static_cast<int>(i)) + ".vtu");
-    saver.addField<ElementType::Edge>("included", edgeIncluded);
-    saver.save();
+    regionGraph.insertLoop(res, axis);
   }
+  std::vector<Vertex> centerEdges(mesh.edges.size());
+  for (size_t i = 0; i < mesh.edges.size(); i++)
+    centerEdges[i] = mesh.edges[i].computeCenter(mesh);
 
-  std::cout << std::endl;
+  savePaths("paths.vtu", regionGraph.paths, centerEdges);
+  regionGraph.saveMesh("regions.vtu");
 
   return 0;
 
