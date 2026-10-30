@@ -7,7 +7,7 @@
 #include <set>
 #include <string>
 RegionGraph::RegionGraph(EdgeGraph &g)
-    : g(g), mesh(g.mesh), nbRegion(1), regions() {
+    : edgeGraph(g), mesh(g.mesh), nbRegion(1), regions() {
   for (size_t i = 0; i < g.mesh.nbBoundaryNode; i++)
     regions.set(i, 0);
   for (Axis d = 0; d < DIMENSION; d++)
@@ -15,13 +15,13 @@ RegionGraph::RegionGraph(EdgeGraph &g)
   computeNodeNormals();
 }
 
-static Axis getAxis(Vertex &v) {
+static Axis getAxis(const Vertex &v) {
   size_t res = 0;
-  double maxVal = Vertex(1, 0, 0).dot(v);
+  double maxVal = abs(Vertex(1, 0, 0).dot(v));
   for (size_t d = 1; d < DIMENSION; d++) {
     Vertex a = Vertex::Zero();
     a[d] = 1;
-    double cur = v.dot(a);
+    double cur = abs(v.dot(a));
     if (cur > maxVal) {
       maxVal = cur;
       res = d;
@@ -59,7 +59,7 @@ RegionId RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
     followUpNode = startingEdge[1];
 
   processed[startingEdgeId] = true;
-  for (auto [adjEdgeId, _] : g.adjacency[startingEdgeId]) {
+  for (auto [adjEdgeId, _] : edgeGraph.adjacency[startingEdgeId]) {
     if (mesh.edges[adjEdgeId].containsNode(followUpNode)) {
       toProcess.push(adjEdgeId);
       processed[adjEdgeId] = true;
@@ -81,7 +81,7 @@ RegionId RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
     if (partOfTheLoop || boundaryEdge)
       followUpNode = edge[newEdgeLocal];
     regions.set(followUpNode, newRegion);
-    for (auto [adjEdgeId, _] : g.adjacency[edgeId]) {
+    for (auto [adjEdgeId, _] : edgeGraph.adjacency[edgeId]) {
       if (processed[adjEdgeId])
         continue;
       if (mesh.edges[adjEdgeId].containsNode(followUpNode)) {
@@ -102,7 +102,7 @@ void RegionGraph::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
 
   LoopZone loopZone;
 
-  for (size_t i = 0; i < edgeIds.size() - 1; i++) {
+  for (size_t i = 0; i < edgeIds.size(); i++) {
     size_t edgeId = edgeIds[i];
 
     Edge &e = mesh.edges[edgeId];
@@ -147,7 +147,8 @@ std::vector<NodeId> RegionGraph::getCandidates(RegionId regionId) {
       candidates.clear();
       maxScore = score;
     }
-    candidates.push_back(nodeId);
+    if (score == maxScore)
+      candidates.push_back(nodeId);
   }
   return candidates;
 }
@@ -187,6 +188,7 @@ AxisLoopZones::computeMids(TetrahedralMesh &mesh,
       }
       regionToCandidateCount[regionId] = regionCandidates[regionId].size();
     }
+    assert(!zoneCandidates.empty());
     auto leftPtr = zoneCandidates.begin();
     auto rightPtr = zoneCandidates.end();
     rightPtr--;
@@ -239,13 +241,35 @@ std::vector<NodeId> RegionGraph::computeCorners() {
   return regionCorners;
 }
 
+void RegionGraph::linkCorners(NodeId start, NodeId end) {}
+
+void RegionGraph::computePaths(std::vector<NodeId> corners) {
+  assert(corners.size() == nbRegion);
+  for (RegionId startRegionId = 0; startRegionId < nbRegion; startRegionId++) {
+    std::vector<size_t> sharedLoops(nbRegion, 0);
+    for (Axis d = 0; d < DIMENSION; d++) {
+      ZoneId zoneId = loopZones[d].getZone(startRegionId);
+      for (RegionId other : loopZones[d][zoneId])
+        sharedLoops[other]++;
+    }
+    for (RegionId endRegionId = 0; endRegionId < nbRegion; endRegionId++) {
+      if (endRegionId == startRegionId)
+        continue;
+      assert(sharedLoops[endRegionId] < 3);
+      if (sharedLoops[endRegionId] < 2 || endRegionId > startRegionId)
+        continue;
+      linkCorners(corners[startRegionId], corners[endRegionId]);
+    }
+  }
+}
+
 void RegionGraph::saveMesh(std::string filename) {
   std::vector<NodeId> corners = computeCorners();
   std::vector<bool> isCorner(mesh.vertices.size(), false);
 
-  std::vector<bool> xZone(mesh.vertices.size(), false);
-  std::vector<bool> yZone(mesh.vertices.size(), false);
-  std::vector<bool> zZone(mesh.vertices.size(), false);
+  std::vector<ZoneId> xZone(mesh.vertices.size(), false);
+  std::vector<ZoneId> yZone(mesh.vertices.size(), false);
+  std::vector<ZoneId> zZone(mesh.vertices.size(), false);
   for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
     RegionId regionId = regions[nodeId];
     xZone[nodeId] = loopZones[0].getZone(regionId);
@@ -259,7 +283,7 @@ void RegionGraph::saveMesh(std::string filename) {
   for (size_t nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++)
     colors[nodeId] = static_cast<size_t>(getFaceRegion(nodeId));
 
-  MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets, "regions.vtu");
+  MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets, filename);
   saver.addField<ElementType::Node>("region", colors);
   saver.addField<ElementType::Node>("isCorner", isCorner);
   saver.addField<ElementType::Node>("xZone", xZone);

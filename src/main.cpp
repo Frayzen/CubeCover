@@ -1,5 +1,6 @@
 #include "constants.hpp"
 #include "edge_graph.hpp"
+#include "graph.hpp"
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
 #include "mesh_saver.hpp"
@@ -31,15 +32,15 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  EdgeGraph g(mesh);
+  EdgeGraph edgeGraph(mesh);
 
   AdjacencyWeight weights[] = {
-      computeWeights(g, Vertex(1, 0, 0)),
-      computeWeights(g, Vertex(0, 1, 0)),
-      computeWeights(g, Vertex(0, 0, 1)),
+      computeWeights(edgeGraph, Vertex(1, 0, 0)),
+      computeWeights(edgeGraph, Vertex(0, 1, 0)),
+      computeWeights(edgeGraph, Vertex(0, 0, 1)),
   };
 
-  RegionGraph regionGraph(g);
+  RegionGraph regionGraph(edgeGraph);
 
   double scores[DIMENSION] = {0, 0, 0};
   size_t startEdge[DIMENSION] = {0, 0, 0};
@@ -59,7 +60,7 @@ int main(int argc, char *argv[]) {
   size_t i = 0;
   for (size_t axis = 0; axis < DIMENSION; axis++) {
     size_t startNode = startEdge[axis];
-    std::vector<size_t> res = shortestPath(g, weights[axis], startNode);
+    std::vector<size_t> res = shortestPath(edgeGraph, weights[axis], startNode);
     std::vector<bool> edgeIncluded(mesh.edges.size(), false);
     for (size_t i = 1; i < res.size(); i++) {
       size_t e = res[i];

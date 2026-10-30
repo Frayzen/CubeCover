@@ -46,7 +46,7 @@ public:
 
 class RegionGraph {
 private:
-  EdgeGraph &g;
+  EdgeGraph &edgeGraph;
   TetrahedralMesh &mesh;
   size_t nbRegion;
   ManyToOne<NodeId, RegionId> regions;
@@ -54,17 +54,20 @@ private:
 
   std::vector<std::array<bool, DIMENSION>> nodeNormals;
   void computeNodeNormals();
+  void linkCorners(NodeId start, NodeId end);
 
   RegionId fillConnectedFaces(size_t startingFace, std::vector<size_t> edgeIds,
                               size_t axis);
 
 public:
   std::vector<Path> paths;
-  RegionGraph(EdgeGraph &g);
+  RegionGraph(EdgeGraph &edgeGraph);
 
   void insertLoop(std::vector<size_t> edgesId, size_t axis);
   size_t getFaceRegion(size_t nodeId) { return regions[nodeId]; };
+
   std::vector<NodeId> computeCorners();
+  void computePaths(std::vector<NodeId> corners);
 
   std::vector<NodeId> getCandidates(RegionId regionId);
 
