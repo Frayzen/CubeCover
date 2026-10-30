@@ -5,6 +5,7 @@
 #include "many_to_one.hpp"
 
 using NodeId = size_t;
+using FaceId = size_t;
 using EdgeId = size_t;
 using RegionId = size_t;
 using Axis = size_t;
@@ -17,6 +18,9 @@ private:
   size_t nbRegion;
   ManyToOne<NodeId, RegionId> regions;
 
+  std::vector<Vertex> nodeNormals;
+  void computeNodeNormals();
+
   void fillConnectedFaces(size_t startingFace, std::vector<size_t> edgeIds,
                           size_t axis);
 
@@ -26,6 +30,8 @@ public:
 
   void insertLoop(std::vector<size_t> edgesId, size_t axis);
   size_t getFaceRegion(size_t nodeId) { return regions[nodeId]; };
+
+  std::vector<NodeId> getCandidates(RegionId regionId);
 
   void saveMesh(std::string filename);
 };

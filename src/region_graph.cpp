@@ -1,4 +1,5 @@
 #include "region_graph.hpp"
+#include "constants.hpp"
 #include "mesh_saver.hpp"
 #include <queue>
 #include <string>
@@ -6,6 +7,19 @@ RegionGraph::RegionGraph(EdgeGraph &g)
     : g(g), mesh(g.mesh), nbRegion(1), regions() {
   for (size_t i = 0; i < g.mesh.nbBoundaryNode; i++) {
     regions.set(i, 0);
+  }
+  computeNodeNormals();
+}
+
+void RegionGraph::computeNodeNormals() {
+  nodeNormals.clear();
+  nodeNormals.reserve(mesh.nbBoundaryNode);
+  for (FaceId faceId = 0; faceId < mesh.nbBoundaryFace; faceId++) {
+    Face &f = mesh.faces[faceId];
+    Vertex normal = f.computeNormal(mesh);
+    for (size_t i = 0; i < NB_NODE_PER_FACE; i++) {
+      // TODO add normal to the list of the normal for the node
+    }
   }
 }
 
@@ -72,6 +86,13 @@ void RegionGraph::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
     fillConnectedFaces(edgeId, edgeIds, axis);
     std::cout << "GOT " << nbRegion << " REGIONS " << std::endl;
   }
+}
+
+std::vector<NodeId> RegionGraph::getCandidates(RegionId regionId) {
+  std::vector<NodeId> candidates;
+  bool axisNormals[3] = {true, true, true};
+
+  // TODO get the best candidate
 }
 
 void RegionGraph::saveMesh(std::string filename) {

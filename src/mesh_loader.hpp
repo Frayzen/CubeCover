@@ -47,6 +47,9 @@ struct Face {
   Face(const std::array<size_t, 3> nodes) : nodes(nodes) {}
   std::array<ssize_t, 2> adjacentCells;
 
+  const size_t &operator[](size_t i) const { return nodes[i]; }
+  size_t &operator[](size_t i) { return nodes[i]; }
+
   Vertex computeNormal(TetrahedralMesh &m);
 };
 
