@@ -1,4 +1,5 @@
 #include "edge_graph.hpp"
+#include <Eigen/Eigen>
 #include <cmath>
 #include <limits>
 #include <queue>

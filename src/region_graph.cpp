@@ -1,31 +1,50 @@
 #include "region_graph.hpp"
 #include "constants.hpp"
 #include "mesh_saver.hpp"
+#include <cmath>
+#include <iostream>
 #include <queue>
+#include <set>
 #include <string>
 RegionGraph::RegionGraph(EdgeGraph &g)
     : g(g), mesh(g.mesh), nbRegion(1), regions() {
-  for (size_t i = 0; i < g.mesh.nbBoundaryNode; i++) {
+  for (size_t i = 0; i < g.mesh.nbBoundaryNode; i++)
     regions.set(i, 0);
-  }
+  for (Axis d = 0; d < DIMENSION; d++)
+    loopZones[d].insertZone({0}, 0);
   computeNodeNormals();
 }
 
+static Axis getAxis(Vertex &v) {
+  size_t res = 0;
+  double maxVal = Vertex(1, 0, 0).dot(v);
+  for (size_t d = 1; d < DIMENSION; d++) {
+    Vertex a = Vertex::Zero();
+    a[d] = 1;
+    double cur = v.dot(a);
+    if (cur > maxVal) {
+      maxVal = cur;
+      res = d;
+    }
+  }
+  return res;
+}
+
 void RegionGraph::computeNodeNormals() {
-  nodeNormals.clear();
-  nodeNormals.reserve(mesh.nbBoundaryNode);
+  nodeNormals = std::vector<std::array<bool, 3>>(mesh.nbBoundaryNode,
+                                                 {false, false, false});
   for (FaceId faceId = 0; faceId < mesh.nbBoundaryFace; faceId++) {
     Face &f = mesh.faces[faceId];
     Vertex normal = f.computeNormal(mesh);
-    for (size_t i = 0; i < NB_NODE_PER_FACE; i++) {
-      // TODO add normal to the list of the normal for the node
-    }
+    Axis a = getAxis(normal);
+    for (size_t i = 0; i < NB_NODE_PER_FACE; i++)
+      nodeNormals[f[i]][a] = true;
   }
 }
 
-void RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
-                                     std::vector<EdgeId> loopEdgeIds,
-                                     size_t axis) {
+RegionId RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
+                                         std::vector<EdgeId> loopEdgeIds,
+                                         size_t axis) {
   size_t targetRegion = regions[mesh.edges[startingEdgeId][0]];
   size_t newRegion = nbRegion;
   nbRegion++;
@@ -71,37 +90,180 @@ void RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
       }
     }
   }
+  return newRegion;
 }
 
 void RegionGraph::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
   paths.push_back(std::make_pair(edgeIds, axis));
 
+  Edge &firstEdge = mesh.edges[edgeIds[0]];
+  RegionId oldRegion = regions[firstEdge[0]];
+  ZoneId oldZone = loopZones[axis].getZone(oldRegion);
+
+  LoopZone loopZone;
+
   for (size_t i = 0; i < edgeIds.size() - 1; i++) {
     size_t edgeId = edgeIds[i];
 
     Edge &e = mesh.edges[edgeId];
-    bool sameRegion = regions[e[0]] == regions[e[1]];
+    RegionId curOldRegion = regions[e[0]];
+    bool sameRegion = curOldRegion == regions[e[1]];
     if (!sameRegion)
       continue;
-    fillConnectedFaces(edgeId, edgeIds, axis);
+    RegionId newRegion = fillConnectedFaces(edgeId, edgeIds, axis);
+    loopZone.push_back(newRegion);
+    for (Axis d = 0; d < DIMENSION; d++) {
+      if (d == axis)
+        continue;
+      loopZones[d].addRegionToZone(loopZones[d].getZone(curOldRegion),
+                                   newRegion);
+    }
     std::cout << "GOT " << nbRegion << " REGIONS " << std::endl;
+  }
+  loopZones[axis].insertZone(loopZone, oldZone);
+  for (size_t i = 0; i < DIMENSION; i++) {
+    std::cout << "LOOP ZONE " << i << " GOT " << loopZones[i].size()
+              << std::endl;
   }
 }
 
 std::vector<NodeId> RegionGraph::getCandidates(RegionId regionId) {
   std::vector<NodeId> candidates;
+  ssize_t maxScore = -1;
+
+  // TODO change to retrieve from region
   bool axisNormals[3] = {true, true, true};
 
-  // TODO get the best candidate
+  auto nodeIds = regions.getAll(regionId);
+  for (NodeId nodeId : nodeIds) {
+    ssize_t score = 0;
+    for (size_t d = 0; d < DIMENSION; d++) {
+      if (axisNormals[d] && nodeNormals[nodeId][d])
+        score++;
+      if (axisNormals[d] && !nodeNormals[nodeId][d])
+        score--;
+    }
+    if (score > maxScore) {
+      candidates.clear();
+      maxScore = score;
+    }
+    candidates.push_back(nodeId);
+  }
+  return candidates;
+}
+
+struct CornerCandidate {
+  double axisValue;
+  NodeId nodeId;
+  RegionId regionId;
+};
+
+struct Order {
+  bool operator()(const CornerCandidate &a, const CornerCandidate &b) const {
+    if (a.axisValue == b.axisValue)
+      return a.nodeId > b.nodeId;
+    return a.axisValue < b.axisValue; // Sorts in ascending order
+  }
+};
+
+std::vector<double>
+AxisLoopZones::computeMids(TetrahedralMesh &mesh,
+                           std::vector<std::vector<NodeId>> &regionCandidates,
+                           size_t axis) {
+  std::vector<double> res(loopZones.size());
+  std::vector<size_t> regionToCandidateCount(regionCandidates.size());
+  for (size_t zoneId = 0; zoneId < loopZones.size(); zoneId++) {
+    const LoopZone &zone = loopZones[zoneId];
+    std::set<CornerCandidate, Order> zoneCandidates;
+    for (size_t i = 0; i < zone.size(); i++) {
+      RegionId regionId = zone[i];
+      for (NodeId candidateId : regionCandidates[regionId]) {
+        CornerCandidate c{
+            .axisValue = mesh.vertices[candidateId][axis],
+            .nodeId = candidateId,
+            .regionId = regionId,
+        };
+        zoneCandidates.insert(c);
+      }
+      regionToCandidateCount[regionId] = regionCandidates[regionId].size();
+    }
+    auto leftPtr = zoneCandidates.begin();
+    auto rightPtr = zoneCandidates.end();
+    rightPtr--;
+    while (rightPtr != leftPtr) {
+      const CornerCandidate &cur = *rightPtr;
+      if (regionToCandidateCount[cur.regionId] == 1)
+        break;
+      regionToCandidateCount[cur.regionId]--;
+      rightPtr--;
+    }
+    while (leftPtr != rightPtr) {
+      const CornerCandidate &cur = *leftPtr;
+      if (regionToCandidateCount[cur.regionId] == 1)
+        break;
+      regionToCandidateCount[cur.regionId]--;
+      leftPtr++;
+    }
+    double mid = (leftPtr->axisValue + rightPtr->axisValue) / 2.0;
+    res[zoneId] = mid;
+  }
+  return res;
+}
+
+std::vector<NodeId> RegionGraph::computeCorners() {
+  std::vector<std::vector<NodeId>> regionCandidates(nbRegion);
+  for (RegionId regionId = 0; regionId < nbRegion; regionId++)
+    regionCandidates[regionId] = getCandidates(regionId);
+  std::array<std::vector<double>, DIMENSION> zoneMidPerAxis;
+  for (Axis d = 0; d < DIMENSION; d++)
+    zoneMidPerAxis[d] = loopZones[d].computeMids(mesh, regionCandidates, d);
+
+  std::vector<NodeId> regionCorners(nbRegion);
+  for (RegionId regionId = 0; regionId < nbRegion; regionId++) {
+    Vertex target;
+    for (Axis d = 0; d < DIMENSION; d++) {
+      ZoneId zoneId = loopZones[d].getZone(regionId);
+      target[d] = zoneMidPerAxis[d][zoneId];
+    }
+    double closestDist = INFINITY;
+    NodeId closestId = 0;
+    for (NodeId nodeId : regionCandidates[regionId]) {
+      double distance = (mesh.vertices[nodeId] - target).norm();
+      if (distance < closestDist) {
+        closestId = nodeId;
+        closestDist = distance;
+      }
+    }
+    regionCorners[regionId] = closestId;
+  }
+  return regionCorners;
 }
 
 void RegionGraph::saveMesh(std::string filename) {
+  std::vector<NodeId> corners = computeCorners();
+  std::vector<bool> isCorner(mesh.vertices.size(), false);
 
+  std::vector<bool> xZone(mesh.vertices.size(), false);
+  std::vector<bool> yZone(mesh.vertices.size(), false);
+  std::vector<bool> zZone(mesh.vertices.size(), false);
+  for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
+    RegionId regionId = regions[nodeId];
+    xZone[nodeId] = loopZones[0].getZone(regionId);
+    yZone[nodeId] = loopZones[1].getZone(regionId);
+    zZone[nodeId] = loopZones[2].getZone(regionId);
+  }
+
+  for (NodeId nodeId : corners)
+    isCorner[nodeId] = true;
   std::vector<int> colors(mesh.vertices.size(), -1);
   for (size_t nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++)
     colors[nodeId] = static_cast<size_t>(getFaceRegion(nodeId));
 
   MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets, "regions.vtu");
   saver.addField<ElementType::Node>("region", colors);
+  saver.addField<ElementType::Node>("isCorner", isCorner);
+  saver.addField<ElementType::Node>("xZone", xZone);
+  saver.addField<ElementType::Node>("yZone", yZone);
+  saver.addField<ElementType::Node>("zZone", zZone);
   saver.saveMesh();
 }

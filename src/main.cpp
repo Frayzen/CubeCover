@@ -74,7 +74,6 @@ int main(int argc, char *argv[]) {
 
   savePaths("paths.vtu", regionGraph.paths, centerEdges);
   regionGraph.saveMesh("regions.vtu");
-
   return 0;
 
   // In the order
