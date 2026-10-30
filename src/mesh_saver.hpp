@@ -4,7 +4,7 @@
 #include "mesh_loader.hpp"
 #include "vertex.hpp"
 
-#include "region_graph.hpp"
+#include "region_divider.hpp"
 #include <stdexcept>
 #include <string>
 #include <type_traits>

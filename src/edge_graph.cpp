@@ -1,8 +1,6 @@
 #include "edge_graph.hpp"
 #include <Eigen/Eigen>
 #include <cmath>
-#include <limits>
-#include <queue>
 #include <vector>
 
 void EdgeGraph::buildGraph() {
@@ -19,24 +17,27 @@ void EdgeGraph::buildGraph() {
       for (size_t j = 0; j < NB_NODE_PER_FACE; j++) {
         if (i == j)
           continue;
-        adjacency[edges[i]].push_back(std::make_pair(edges[j], faceId));
+        adjacency[edges[i]].push_back(edges[j]);
+        adjacentFace[edges[i]].push_back(faceId);
       }
     }
   }
 }
 
-AdjacencyWeight computeWeights(EdgeGraph &graph, Vertex axis,
-                               double strictnessFactor) {
+AdjacencyWeight computeEdgeWeights(EdgeGraph &edgeGraph, Vertex axis,
+                                   double strictnessFactor) {
   axis.normalize();
 
-  TetrahedralMesh &mesh = graph.mesh;
-  std::vector<std::vector<double>> res(graph.adjacency.size());
+  TetrahedralMesh &mesh = edgeGraph.mesh;
+  std::vector<std::vector<double>> res(edgeGraph.adjacency.size());
 
-  for (MeshEdgeId nodeId = 0; nodeId < graph.nbNode(); nodeId++) {
+  for (MeshEdgeId nodeId = 0; nodeId < edgeGraph.nbNode(); nodeId++) {
     Vertex p = mesh.edges[nodeId].computeCenter(mesh);
     std::vector<double> nodeWeights;
 
-    for (auto [adjacentNodeId, adjFaceId] : graph.adjacency[nodeId]) {
+    for (size_t i = 0; i < edgeGraph.adjacency[nodeId].size(); i++) {
+      size_t adjacentNodeId = edgeGraph.adjacency[nodeId][i];
+      size_t adjFaceId = edgeGraph.adjacentFace[nodeId][i];
       Vertex padj = mesh.edges[adjacentNodeId].computeCenter(mesh);
 
       Vertex d = padj - p;

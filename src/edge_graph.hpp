@@ -21,12 +21,16 @@ private:
 public:
   TetrahedralMesh &mesh;
 
-  EdgeGraph(TetrahedralMesh &m) : mesh(m), Graph(m.edges.size()) {
+  std::vector<std::vector<size_t>>
+      adjacentFace; // associated with Graph.adjacency
+
+  EdgeGraph(TetrahedralMesh &m)
+      : mesh(m), Graph(m.edges.size()), adjacentFace(m.edges.size()) {
     buildGraph();
   }
 };
 
-AdjacencyWeight computeWeights(EdgeGraph &graph, Vertex axis,
-                               double strictnessFactor = 10);
+AdjacencyWeight computeEdgeWeights(EdgeGraph &edgeGraph, Vertex axis,
+                                   double strictnessFactor = 10);
 
 #endif

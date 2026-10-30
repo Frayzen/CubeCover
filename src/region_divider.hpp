@@ -13,7 +13,7 @@ using Axis = size_t;
 using Path = std::pair<std::vector<EdgeId>, Axis>;
 using ZoneId = size_t;
 
-class RegionGraph;
+class RegionDivider;
 
 using LoopZone = std::vector<RegionId>;
 class AxisLoopZones {
@@ -44,7 +44,7 @@ public:
   }
 };
 
-class RegionGraph {
+class RegionDivider {
 private:
   EdgeGraph &edgeGraph;
   TetrahedralMesh &mesh;
@@ -61,7 +61,7 @@ private:
 
 public:
   std::vector<Path> paths;
-  RegionGraph(EdgeGraph &edgeGraph);
+  RegionDivider(EdgeGraph &edgeGraph);
 
   void insertLoop(std::vector<size_t> edgesId, size_t axis);
   size_t getFaceRegion(size_t nodeId) { return regions[nodeId]; };

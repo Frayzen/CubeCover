@@ -6,7 +6,7 @@
 
 double Graph::getWeight(AdjacencyWeight &w, size_t from, size_t to) {
   for (size_t i = 0; i < adjacency[from].size(); i++) {
-    if (adjacency[from][i].first == to)
+    if (adjacency[from][i] == to)
       return w[from][i];
   }
   throw std::invalid_argument("To not in from adjacency list");
@@ -34,7 +34,7 @@ std::vector<size_t> shortestPath(Graph &g, AdjacencyWeight &weights,
       throw std::invalid_argument(
           "Weight and adjacency dimensions do not match.");
 
-    for (auto [v, faceId] : g.adjacency[u]) {
+    for (auto v : g.adjacency[u]) {
       if (v >= n)
         throw std::invalid_argument(
             "Adjacency contains an invalid node index.");
@@ -55,7 +55,7 @@ std::vector<size_t> shortestPath(Graph &g, AdjacencyWeight &weights,
         continue;
 
       for (size_t i = 0; i < g.adjacency[u].size(); ++i) {
-        size_t v = std::get<0>(g.adjacency[u][i]);
+        size_t v = g.adjacency[u][i];
         Weight w = weights[u][i];
 
         if (!std::isfinite(w))
@@ -79,7 +79,7 @@ std::vector<size_t> shortestPath(Graph &g, AdjacencyWeight &weights,
   std::vector<std::vector<size_t>> reverseGraph(n);
 
   for (size_t u = 0; u < n; ++u) {
-    for (auto [v, faceId] : g.adjacency[u]) {
+    for (auto v : g.adjacency[u]) {
       reverseGraph[v].push_back(u);
     }
   }
@@ -112,7 +112,7 @@ std::vector<size_t> shortestPath(Graph &g, AdjacencyWeight &weights,
       continue;
 
     for (size_t i = 0; i < g.adjacency[u].size(); ++i) {
-      size_t v = g.adjacency[u][i].first;
+      size_t v = g.adjacency[u][i];
       Weight w = weights[u][i];
 
       if (dist[u] + w < dist[v]) {
@@ -128,7 +128,7 @@ std::vector<size_t> shortestPath(Graph &g, AdjacencyWeight &weights,
     q.pop();
 
     for (size_t i = 0; i < g.adjacency[u].size(); ++i) {
-      size_t v = g.adjacency[u][i].first;
+      size_t v = g.adjacency[u][i];
 
       if (!affected[v]) {
         affected[v] = true;
@@ -154,7 +154,7 @@ std::vector<size_t> shortestPath(Graph &g, AdjacencyWeight &weights,
       continue;
 
     for (size_t i = 0; i < g.adjacency[u].size(); ++i) {
-      size_t v = g.adjacency[u][i].first;
+      size_t v = g.adjacency[u][i];
 
       if (v == startingNode) {
         Weight candidate = dist[u] + weights[u][i];

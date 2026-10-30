@@ -1,12 +1,13 @@
-#include "region_graph.hpp"
+#include "region_divider.hpp"
 #include "constants.hpp"
+#include "graph.hpp"
 #include "mesh_saver.hpp"
 #include <cmath>
 #include <iostream>
 #include <queue>
 #include <set>
 #include <string>
-RegionGraph::RegionGraph(EdgeGraph &g)
+RegionDivider::RegionDivider(EdgeGraph &g)
     : edgeGraph(g), mesh(g.mesh), nbRegion(1), regions() {
   for (size_t i = 0; i < g.mesh.nbBoundaryNode; i++)
     regions.set(i, 0);
@@ -30,7 +31,7 @@ static Axis getAxis(const Vertex &v) {
   return res;
 }
 
-void RegionGraph::computeNodeNormals() {
+void RegionDivider::computeNodeNormals() {
   nodeNormals = std::vector<std::array<bool, 3>>(mesh.nbBoundaryNode,
                                                  {false, false, false});
   for (FaceId faceId = 0; faceId < mesh.nbBoundaryFace; faceId++) {
@@ -42,9 +43,9 @@ void RegionGraph::computeNodeNormals() {
   }
 }
 
-RegionId RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
-                                         std::vector<EdgeId> loopEdgeIds,
-                                         size_t axis) {
+RegionId RegionDivider::fillConnectedFaces(NodeId startingEdgeId,
+                                           std::vector<EdgeId> loopEdgeIds,
+                                           size_t axis) {
   size_t targetRegion = regions[mesh.edges[startingEdgeId][0]];
   size_t newRegion = nbRegion;
   nbRegion++;
@@ -59,7 +60,7 @@ RegionId RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
     followUpNode = startingEdge[1];
 
   processed[startingEdgeId] = true;
-  for (auto [adjEdgeId, _] : edgeGraph.adjacency[startingEdgeId]) {
+  for (auto adjEdgeId : edgeGraph.adjacency[startingEdgeId]) {
     if (mesh.edges[adjEdgeId].containsNode(followUpNode)) {
       toProcess.push(adjEdgeId);
       processed[adjEdgeId] = true;
@@ -81,7 +82,7 @@ RegionId RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
     if (partOfTheLoop || boundaryEdge)
       followUpNode = edge[newEdgeLocal];
     regions.set(followUpNode, newRegion);
-    for (auto [adjEdgeId, _] : edgeGraph.adjacency[edgeId]) {
+    for (auto adjEdgeId : edgeGraph.adjacency[edgeId]) {
       if (processed[adjEdgeId])
         continue;
       if (mesh.edges[adjEdgeId].containsNode(followUpNode)) {
@@ -93,7 +94,7 @@ RegionId RegionGraph::fillConnectedFaces(NodeId startingEdgeId,
   return newRegion;
 }
 
-void RegionGraph::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
+void RegionDivider::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
   paths.push_back(std::make_pair(edgeIds, axis));
 
   Edge &firstEdge = mesh.edges[edgeIds[0]];
@@ -127,7 +128,7 @@ void RegionGraph::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
   }
 }
 
-std::vector<NodeId> RegionGraph::getCandidates(RegionId regionId) {
+std::vector<NodeId> RegionDivider::getCandidates(RegionId regionId) {
   std::vector<NodeId> candidates;
   ssize_t maxScore = -1;
 
@@ -212,7 +213,7 @@ AxisLoopZones::computeMids(TetrahedralMesh &mesh,
   return res;
 }
 
-std::vector<NodeId> RegionGraph::computeCorners() {
+std::vector<NodeId> RegionDivider::computeCorners() {
   std::vector<std::vector<NodeId>> regionCandidates(nbRegion);
   for (RegionId regionId = 0; regionId < nbRegion; regionId++)
     regionCandidates[regionId] = getCandidates(regionId);
@@ -241,9 +242,17 @@ std::vector<NodeId> RegionGraph::computeCorners() {
   return regionCorners;
 }
 
-void RegionGraph::linkCorners(NodeId start, NodeId end) {}
+void RegionDivider::linkCorners(NodeId start, NodeId end) {
+  Graph g(mesh.nbBoundaryNode);
+  AdjacencyWeight weights(mesh.nbBoundaryNode);
+  for (EdgeId edgeId = 0; edgeId < mesh.nbBoundaryEdge; edgeId++) {
+    Edge &e = mesh.edges[edgeId];
+    g.adjacency[e[0]].push_back(e[1]);
+    g.adjacency[e[0]].push_back(e[1]);
+  }
+}
 
-void RegionGraph::computePaths(std::vector<NodeId> corners) {
+void RegionDivider::computePaths(std::vector<NodeId> corners) {
   assert(corners.size() == nbRegion);
   for (RegionId startRegionId = 0; startRegionId < nbRegion; startRegionId++) {
     std::vector<size_t> sharedLoops(nbRegion, 0);
@@ -263,7 +272,7 @@ void RegionGraph::computePaths(std::vector<NodeId> corners) {
   }
 }
 
-void RegionGraph::saveMesh(std::string filename) {
+void RegionDivider::saveMesh(std::string filename) {
   std::vector<NodeId> corners = computeCorners();
   std::vector<bool> isCorner(mesh.vertices.size(), false);
 

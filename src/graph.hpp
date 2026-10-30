@@ -7,7 +7,7 @@ using AdjacencyWeight = std::vector<std::vector<double>>;
 
 class Graph {
 public:
-  std::vector<std::vector<std::pair<size_t, size_t>>> adjacency;
+  std::vector<std::vector<size_t>> adjacency;
 
   Graph(size_t amountNode) : adjacency(amountNode) {};
 

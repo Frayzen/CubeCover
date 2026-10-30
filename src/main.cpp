@@ -4,7 +4,7 @@
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
 #include "mesh_saver.hpp"
-#include "region_graph.hpp"
+#include "region_divider.hpp"
 #include "shape_functions.hpp"
 #include <Eigen/Core>
 #include <Eigen/IterativeLinearSolvers>
@@ -35,12 +35,12 @@ int main(int argc, char *argv[]) {
   EdgeGraph edgeGraph(mesh);
 
   AdjacencyWeight weights[] = {
-      computeWeights(edgeGraph, Vertex(1, 0, 0)),
-      computeWeights(edgeGraph, Vertex(0, 1, 0)),
-      computeWeights(edgeGraph, Vertex(0, 0, 1)),
+      computeEdgeWeights(edgeGraph, Vertex(1, 0, 0)),
+      computeEdgeWeights(edgeGraph, Vertex(0, 1, 0)),
+      computeEdgeWeights(edgeGraph, Vertex(0, 0, 1)),
   };
 
-  RegionGraph regionGraph(edgeGraph);
+  RegionDivider regionGraph(edgeGraph);
 
   double scores[DIMENSION] = {0, 0, 0};
   size_t startEdge[DIMENSION] = {0, 0, 0};
