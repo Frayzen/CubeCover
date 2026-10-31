@@ -69,9 +69,10 @@ public:
 
   void insertLoop(std::vector<size_t> edgesId, size_t axis);
   size_t getFaceRegion(size_t nodeId) { return regions[nodeId]; };
+  std::vector<Axis> colorizeMesh(std::vector<Path> &paths);
 
   std::vector<NodeId> computeCorners();
-  std::vector<std::vector<size_t>> computePaths(std::vector<NodeId> corners);
+  std::vector<Path> computePaths(std::vector<NodeId> corners);
 
   std::vector<NodeId> getCandidates(RegionId regionId);
 

@@ -4,6 +4,7 @@
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
 #include "mesh_saver.hpp"
+#include "path_saver.hpp"
 #include "region_divider.hpp"
 #include "shape_functions.hpp"
 #include <Eigen/Core>

@@ -1,59 +1,62 @@
 #include "mesh_saver.hpp"
+
+#include <cassert>
+#include <vector>
+
 #include <vtkIdTypeArray.h>
 
-std::vector<Edge> buildEdges(const std::vector<Tetrahedron> &tets) {
-  std::vector<Edge> edges;
+MeshSaver::MeshSaver(const TetrahedralMesh &mesh, const std::string &path)
+    : mesh(mesh), path(path) {
 
-  for (const auto &t : tets) {
-    for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
-      for (size_t j = i + 1; j < NB_NODE_PER_TET; ++j) {
-        Edge e;
-        e.nodes[0] = std::min(t[i], t[j]);
-        e.nodes[1] = std::max(t[i], t[j]);
-        edges.push_back(e);
-      }
-    }
-  }
-  return edges;
+  buildVolumeGrid();
+  buildEdgeGrid();
+  buildFaceGrid();
 }
 
-MeshSaver::MeshSaver(const std::vector<Vertex> &vertices,
-                     const std::vector<Edge> &edges,
-                     const std::vector<Tetrahedron> &tets,
-                     const std::string &path)
-    : path(path), nbNodes(vertices.size()), nbCells(tets.size()) {
+void MeshSaver::buildVolumeGrid() {
+
   grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
 
   auto points = vtkSmartPointer<vtkPoints>::New();
 
-  for (const auto &v : vertices) {
+  for (const auto &v : mesh.vertices) {
     points->InsertNextPoint(v.x(), v.y(), v.z());
   }
 
   grid->SetPoints(points);
 
-  for (const auto &t : tets) {
+  for (const auto &tet : mesh.tets) {
+
     vtkIdType ids[NB_NODE_PER_TET];
 
     for (size_t i = 0; i < NB_NODE_PER_TET; ++i) {
-      if (t[i] >= vertices.size()) {
+
+      if (tet[i] >= mesh.vertices.size()) {
         throw std::out_of_range("Invalid tetrahedron vertex index.");
       }
 
-      ids[i] = static_cast<vtkIdType>(t[i]);
+      ids[i] = static_cast<vtkIdType>(tet[i]);
     }
 
     grid->InsertNextCell(VTK_TETRA, NB_NODE_PER_TET, ids);
   }
+}
 
-  nbEdges = edges.size();
+void MeshSaver::buildEdgeGrid() {
 
   edgeGrid = vtkSmartPointer<vtkPolyData>::New();
-  edgeGrid->SetPoints(points);
+  edgeGrid->SetPoints(grid->GetPoints());
 
   auto lines = vtkSmartPointer<vtkCellArray>::New();
 
-  for (const auto &edge : edges) {
+  for (size_t i = 0; i < mesh.nbBoundaryEdge; ++i) {
+
+    const auto &edge = mesh.edges[i];
+
+    if (edge[0] >= mesh.vertices.size() || edge[1] >= mesh.vertices.size()) {
+      throw std::out_of_range("Invalid edge vertex index.");
+    }
+
     vtkIdType ids[2] = {static_cast<vtkIdType>(edge[0]),
                         static_cast<vtkIdType>(edge[1])};
 
@@ -63,7 +66,35 @@ MeshSaver::MeshSaver(const std::vector<Vertex> &vertices,
   edgeGrid->SetLines(lines);
 }
 
+void MeshSaver::buildFaceGrid() {
+
+  faceGrid = vtkSmartPointer<vtkPolyData>::New();
+  faceGrid->SetPoints(grid->GetPoints());
+
+  auto triangles = vtkSmartPointer<vtkCellArray>::New();
+
+  for (size_t i = 0; i < mesh.nbBoundaryFace; ++i) {
+
+    const auto &face = mesh.faces[i];
+
+    for (size_t j = 0; j < 3; ++j) {
+      if (face[j] >= mesh.vertices.size()) {
+        throw std::out_of_range("Invalid face vertex index.");
+      }
+    }
+
+    vtkIdType ids[3] = {static_cast<vtkIdType>(face[0]),
+                        static_cast<vtkIdType>(face[1]),
+                        static_cast<vtkIdType>(face[2])};
+
+    triangles->InsertNextCell(3, ids);
+  }
+
+  faceGrid->SetPolys(triangles);
+}
+
 void MeshSaver::saveMesh() const {
+
   auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
 
   writer->SetFileName(path.c_str());
@@ -76,7 +107,9 @@ void MeshSaver::saveMesh() const {
 }
 
 void MeshSaver::saveEdges() const {
-  assert(nbEdges > 0);
+
+  assert(mesh.nbBoundaryEdge > 0);
+
   std::string edgePath = path;
 
   const auto pos = edgePath.rfind(".vtu");
@@ -87,73 +120,38 @@ void MeshSaver::saveEdges() const {
     edgePath += "_edges.vtp";
   }
 
-  auto edgeWriter = vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+  auto writer = vtkSmartPointer<vtkXMLPolyDataWriter>::New();
 
-  edgeWriter->SetFileName(edgePath.c_str());
-  edgeWriter->SetInputData(edgeGrid);
-  edgeWriter->SetDataModeToBinary();
+  writer->SetFileName(edgePath.c_str());
+  writer->SetInputData(edgeGrid);
+  writer->SetDataModeToBinary();
 
-  if (edgeWriter->Write() != 1) {
+  if (writer->Write() != 1) {
     throw std::runtime_error("Failed to write VTK edges to " + edgePath);
   }
 }
 
-void savePaths(std::string filename, std::vector<std::vector<size_t>> paths,
-               std::vector<Vertex> vertices) {
-  std::vector<std::pair<std::vector<NodeId>, Axis>> pathUpdated;
-  for (size_t i = 0; i < paths.size(); i++) {
-    pathUpdated.push_back(std::make_pair(paths[i], i));
-  }
-  return savePaths(filename, pathUpdated, vertices);
-}
+void MeshSaver::saveFaces() const {
 
-void savePaths(std::string filename,
-               std::vector<std::pair<std::vector<NodeId>, Axis>> paths,
-               std::vector<Vertex> vertices) {
-  auto points = vtkSmartPointer<vtkPoints>::New();
-  points->SetNumberOfPoints(vertices.size());
+  assert(mesh.nbBoundaryFace > 0);
 
-  // Insert vertices.
-  for (size_t i = 0; i < vertices.size(); ++i) {
-    points->SetPoint(i, vertices[i][0], vertices[i][1], vertices[i][2]);
+  std::string facePath = path;
+
+  const auto pos = facePath.rfind(".vtu");
+
+  if (pos != std::string::npos) {
+    facePath.replace(pos, 4, "_faces.vtp");
+  } else {
+    facePath += "_faces.vtp";
   }
 
-  auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
-  grid->SetPoints(points);
+  auto writer = vtkSmartPointer<vtkXMLPolyDataWriter>::New();
 
-  // Axis associated with each path (cell data).
-  auto axes = vtkSmartPointer<vtkIdTypeArray>::New();
-  axes->SetName("Id");
-  axes->SetNumberOfComponents(1);
+  writer->SetFileName(facePath.c_str());
+  writer->SetInputData(faceGrid);
+  writer->SetDataModeToBinary();
 
-  // Insert paths as polyline cells.
-  for (const auto &[nodes, axis] : paths) {
-    if (nodes.size() < 3)
-      throw std::runtime_error("A path must contain at least 3 nodes.");
-
-    std::vector<vtkIdType> ids;
-    ids.reserve(nodes.size());
-
-    for (NodeId node : nodes) {
-      if (node >= vertices.size())
-        throw std::out_of_range("Path references an invalid vertex.");
-
-      ids.push_back(static_cast<vtkIdType>(node));
-    }
-
-    grid->InsertNextCell(VTK_POLY_LINE, static_cast<vtkIdType>(ids.size()),
-                         ids.data());
-
-    axes->InsertNextValue(static_cast<vtkIdType>(axis));
+  if (writer->Write() != 1) {
+    throw std::runtime_error("Failed to write VTK faces to " + facePath);
   }
-
-  grid->GetCellData()->AddArray(axes);
-
-  // Write VTU file.
-  auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
-  writer->SetFileName(filename.c_str());
-  writer->SetInputData(grid);
-
-  if (writer->Write() != 1)
-    throw std::runtime_error("Failed to write VTU file: " + filename);
 }

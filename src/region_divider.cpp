@@ -2,6 +2,7 @@
 #include "constants.hpp"
 #include "graph.hpp"
 #include "mesh_saver.hpp"
+#include "path_saver.hpp"
 #include "signed_axis.hpp"
 #include <Eigen/Core>
 #include <cmath>
@@ -144,13 +145,8 @@ void RegionDivider::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
       loopZones[d].addRegionToZone(loopZones[d].getZone(curOldRegion),
                                    newRegion);
     }
-    std::cout << "GOT " << nbRegion << " REGIONS " << std::endl;
   }
   loopZones[axis].insertZone(loopZone, oldZone);
-  for (size_t i = 0; i < DIMENSION; i++) {
-    std::cout << "LOOP ZONE " << i << " GOT " << loopZones[i].size()
-              << std::endl;
-  }
 }
 
 std::vector<NodeId> RegionDivider::getCandidates(RegionId regionId) {
@@ -317,13 +313,12 @@ std::vector<size_t> RegionDivider::linkCorners(NodeId start, NodeId end,
   return bellmanFordShortestPath(graph, weights, start, end);
 }
 
-std::vector<std::vector<size_t>>
-RegionDivider::computePaths(std::vector<NodeId> corners) {
+std::vector<Path> RegionDivider::computePaths(std::vector<NodeId> corners) {
   assert(corners.size() == nbRegion);
   auto sumBools = [](std::array<bool, DIMENSION> &v) {
     return v[0] + v[1] + v[2];
   };
-  std::vector<std::vector<size_t>> paths;
+  std::vector<Path> paths;
   for (RegionId startRegionId = 0; startRegionId < nbRegion; startRegionId++) {
     std::vector<std::array<bool, DIMENSION>> sharedLoops(nbRegion,
                                                          {false, false, false});
@@ -344,19 +339,99 @@ RegionDivider::computePaths(std::vector<NodeId> corners) {
         a++;
       std::vector<size_t> path =
           linkCorners(corners[startRegionId], corners[endRegionId], a);
-      paths.push_back(path);
+      paths.push_back(std::make_pair(path, a));
     }
   }
-
-  std::cout << "GOT " << paths.size() << " PATHS" << std::endl;
   return paths;
+}
+
+std::vector<Axis> RegionDivider::colorizeMesh(std::vector<Path> &paths) {
+  std::vector<Axis> res(mesh.nbBoundaryFace, 3);
+  std::vector<std::array<bool, DIMENSION>> nodeToAxis(mesh.nbBoundaryNode,
+                                                      {false, false, false});
+  for (const auto &[nodes, axis] : paths) {
+    for (NodeId node : nodes) {
+      nodeToAxis[node][axis] = true;
+    }
+  }
+  auto sumBools = [](const std::array<bool, DIMENSION> &v) {
+    return static_cast<size_t>(v[0]) + static_cast<size_t>(v[1]) +
+           static_cast<size_t>(v[2]);
+  };
+  auto isBoundaryEdge = [&](EdgeId edgeId) {
+    NodeId n0 = mesh.edges[edgeId][0];
+    NodeId n1 = mesh.edges[edgeId][1];
+    if (sumBools(nodeToAxis[n0]) == DIMENSION ||
+        sumBools(nodeToAxis[n1]) == DIMENSION) {
+      return true;
+    }
+    for (Axis a = 0; a < DIMENSION; ++a) {
+      if (nodeToAxis[n0][a] && nodeToAxis[n1][a])
+        return true;
+    }
+    return false;
+  };
+  std::vector<bool> processed(mesh.nbBoundaryFace, false);
+  std::queue<FaceId> toProcess;
+  for (FaceId f = 0; f < mesh.nbBoundaryFace; ++f) {
+    if (processed[f])
+      continue;
+    std::vector<FaceId> currentBatch;
+    std::array<bool, DIMENSION> curBatchAxis = {false, false, false};
+
+    toProcess.push(f);
+    processed[f] = true;
+
+    while (!toProcess.empty()) {
+      FaceId faceId = toProcess.front();
+      toProcess.pop();
+      currentBatch.push_back(faceId);
+      for (size_t i = 0; i < NB_NODE_PER_FACE; ++i) {
+        NodeId nodeId = mesh.faces[faceId][i];
+        if (sumBools(nodeToAxis[nodeId]) == DIMENSION)
+          continue;
+
+        for (Axis a = 0; a < DIMENSION; ++a) {
+          curBatchAxis[a] |= nodeToAxis[nodeId][a];
+        }
+      }
+      for (EdgeId edgeId : mesh.faceToEdges[faceId]) {
+
+        if (isBoundaryEdge(edgeId))
+          continue;
+
+        for (FaceId adjFaceId : mesh.edgeToBoundaryFaces[edgeId]) {
+          if (processed[adjFaceId])
+            continue;
+
+          processed[adjFaceId] = true;
+          toProcess.push(adjFaceId);
+        }
+      }
+    }
+    assert(sumBools(curBatchAxis) == 2);
+    Axis normal = 0;
+    for (Axis a = 0; a < DIMENSION; ++a) {
+      if (!curBatchAxis[a]) {
+        normal = a;
+        break;
+      }
+    }
+    for (FaceId faceId : currentBatch)
+      res[faceId] = normal;
+  }
+
+  return res;
 }
 
 void RegionDivider::saveMesh(std::string filename) {
   std::vector<NodeId> corners = computeCorners();
 
   std::vector<size_t> nodePathId(mesh.vertices.size(), 0);
-  std::vector<std::vector<size_t>> paths = computePaths(corners);
+  std::vector<Path> paths = computePaths(corners);
+
+  std::vector<Axis> colorization = colorizeMesh(paths);
+
   savePaths("primary_paths.vtu", paths, mesh.vertices);
 
   std::vector<Vertex> centerEdges(mesh.edges.size());
@@ -388,19 +463,22 @@ void RegionDivider::saveMesh(std::string filename) {
   for (size_t nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++)
     colors[nodeId] = static_cast<size_t>(getFaceRegion(nodeId));
 
-  MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets, filename);
-  saver.addField<ElementType::Node>("region", colors);
-  saver.addField<ElementType::Node>("isCorner", isCorner);
+  MeshSaver saver(mesh, filename);
+  saver.addField<ElementType::NodeType>("region", colors);
+  saver.addField<ElementType::NodeType>("isCorner", isCorner);
 
-  saver.addField<ElementType::Node>("xZone", xZone);
-  saver.addField<ElementType::Node>("yZone", yZone);
-  saver.addField<ElementType::Node>("zZone", zZone);
+  saver.addField<ElementType::NodeType>("xZone", xZone);
+  saver.addField<ElementType::NodeType>("yZone", yZone);
+  saver.addField<ElementType::NodeType>("zZone", zZone);
 
-  saver.addField<ElementType::Node>("xSign", xSign);
-  saver.addField<ElementType::Node>("ySign", ySign);
-  saver.addField<ElementType::Node>("zSign", zSign);
+  saver.addField<ElementType::NodeType>("xSign", xSign);
+  saver.addField<ElementType::NodeType>("ySign", ySign);
+  saver.addField<ElementType::NodeType>("zSign", zSign);
 
-  saver.addField<ElementType::Node>("pathId", nodePathId);
+  saver.addField<ElementType::NodeType>("pathId", nodePathId);
+
+  saver.addField<ElementType::FaceType>("colorField", colorization);
   saver.saveMesh();
   saver.saveEdges();
+  saver.saveFaces();
 }
