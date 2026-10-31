@@ -1,0 +1,28 @@
+std::vector<size_t> RegionDivider::linkCorners(NodeId start, NodeId end,
+                                               Axis a) {
+  Graph graph(mesh.nbBoundaryNode);
+  AdjacencyWeight weights(mesh.nbBoundaryNode);
+  // Vertex axis = Vertex::Zero();
+  // double diff = mesh.vertices[end][a] - mesh.vertices[start][a];
+  // axis[a] = diff < 0 ? -1 : 1;
+
+  for (EdgeId edgeId = 0; edgeId < mesh.nbBoundaryEdge; edgeId++) {
+    Edge &e = mesh.edges[edgeId];
+    // std::array<ssize_t, 2> faces = mesh.edgeToBoundaryFaces[edgeId];
+    // std::array<Vertex, 2> normals = {
+    //     mesh.faces[faces[0]].computeNormal(mesh),
+    //     mesh.faces[faces[1]].computeNormal(mesh),
+    // };
+    double distance = e.computeLength(mesh);
+    for (size_t i = 0; i < 2; i++) {
+      size_t otherLocalId = (i + 1) % 2;
+      graph.adjacency[e[i]].push_back(e[otherLocalId]);
+      // TODO adapt using signed direction just like in the paper
+      // double penality = -axis.cross(normals[i]).dot(normals[otherLocalId]) +
+      // 1; weights[e[i]].push_back(penality * distance);
+      weights[e[i]].push_back(distance);
+    }
+  }
+  return bellmanFordShortestPath(graph, weights, start, end);
+}
+

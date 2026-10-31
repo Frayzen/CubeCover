@@ -98,6 +98,15 @@ void MeshSaver::saveEdges() const {
   }
 }
 
+void savePaths(std::string filename, std::vector<std::vector<size_t>> paths,
+               std::vector<Vertex> vertices) {
+  std::vector<std::pair<std::vector<NodeId>, Axis>> pathUpdated;
+  for (size_t i = 0; i < paths.size(); i++) {
+    pathUpdated.push_back(std::make_pair(paths[i], i));
+  }
+  return savePaths(filename, pathUpdated, vertices);
+}
+
 void savePaths(std::string filename,
                std::vector<std::pair<std::vector<NodeId>, Axis>> paths,
                std::vector<Vertex> vertices) {
@@ -114,16 +123,13 @@ void savePaths(std::string filename,
 
   // Axis associated with each path (cell data).
   auto axes = vtkSmartPointer<vtkIdTypeArray>::New();
-  axes->SetName("Axis");
+  axes->SetName("Id");
   axes->SetNumberOfComponents(1);
 
   // Insert paths as polyline cells.
   for (const auto &[nodes, axis] : paths) {
     if (nodes.size() < 3)
-      throw std::runtime_error("A closed path must contain at least 3 nodes.");
-
-    if (nodes.front() != nodes.back())
-      throw std::runtime_error("Path is not closed.");
+      throw std::runtime_error("A path must contain at least 3 nodes.");
 
     std::vector<vtkIdType> ids;
     ids.reserve(nodes.size());

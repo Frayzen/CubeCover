@@ -3,18 +3,17 @@
 
 #include "edge_graph.hpp"
 #include "many_to_one.hpp"
+#include "signed_axis.hpp"
 #include <stdexcept>
 
 using NodeId = size_t;
 using FaceId = size_t;
 using EdgeId = size_t;
 using RegionId = size_t;
-using Axis = size_t;
 using Path = std::pair<std::vector<EdgeId>, Axis>;
 using ZoneId = size_t;
 
 class RegionDivider;
-
 using LoopZone = std::vector<RegionId>;
 class AxisLoopZones {
   std::vector<LoopZone> loopZones;
@@ -44,17 +43,22 @@ public:
   }
 };
 
+using RegionNormals = std::array<SignedAxis, DIMENSION>;
+
 class RegionDivider {
 private:
   EdgeGraph &edgeGraph;
   TetrahedralMesh &mesh;
   size_t nbRegion;
   ManyToOne<NodeId, RegionId> regions;
+  std::vector<RegionNormals> regionToNormals;
   AxisLoopZones loopZones[DIMENSION];
 
   std::vector<std::array<bool, DIMENSION>> nodeNormals;
   void computeNodeNormals();
-  void linkCorners(NodeId start, NodeId end);
+
+  void addRegionNormals(RegionId targetRegion, Axis axis);
+  std::vector<size_t> linkCorners(NodeId start, NodeId end, Axis a);
 
   RegionId fillConnectedFaces(size_t startingFace, std::vector<size_t> edgeIds,
                               size_t axis);
@@ -67,7 +71,7 @@ public:
   size_t getFaceRegion(size_t nodeId) { return regions[nodeId]; };
 
   std::vector<NodeId> computeCorners();
-  void computePaths(std::vector<NodeId> corners);
+  std::vector<std::vector<size_t>> computePaths(std::vector<NodeId> corners);
 
   std::vector<NodeId> getCandidates(RegionId regionId);
 

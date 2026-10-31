@@ -21,6 +21,7 @@ struct Edge {
   size_t &operator[](size_t i) { return nodes[i]; }
   Vertex computeCenter(TetrahedralMesh &m) const;
   Vertex computeDir(TetrahedralMesh &m) const;
+  double computeLength(TetrahedralMesh &m) const;
   bool containsNode(size_t nodeId) const;
 };
 

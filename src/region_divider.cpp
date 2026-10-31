@@ -2,6 +2,8 @@
 #include "constants.hpp"
 #include "graph.hpp"
 #include "mesh_saver.hpp"
+#include "signed_axis.hpp"
+#include <Eigen/Core>
 #include <cmath>
 #include <iostream>
 #include <queue>
@@ -14,6 +16,7 @@ RegionDivider::RegionDivider(EdgeGraph &g)
   for (Axis d = 0; d < DIMENSION; d++)
     loopZones[d].insertZone({0}, 0);
   computeNodeNormals();
+  regionToNormals.push_back({UNDEFINED, UNDEFINED, UNDEFINED});
 }
 
 static Axis getAxis(const Vertex &v) {
@@ -43,15 +46,37 @@ void RegionDivider::computeNodeNormals() {
   }
 }
 
+void RegionDivider::addRegionNormals(RegionId targetRegion, Axis axis) {
+  RegionNormals &targetNormals = regionToNormals[targetRegion];
+  RegionNormals res = {UNDEFINED, UNDEFINED, UNDEFINED};
+  for (Axis d = 0; d < DIMENSION; d++) {
+    if (d == axis) {
+      if (targetNormals[d] == UNDEFINED) {
+        targetNormals[d] = POSITIVE;
+        res[d] = NEGATIVE;
+      } else if (targetNormals[d] == NEGATIVE) {
+        res[d] = NEGATIVE;
+        targetNormals[d] = ZERO;
+      } else if (targetNormals[d] == POSITIVE)
+        res[d] = ZERO;
+      continue;
+    }
+    res[d] = targetNormals[d];
+  }
+  regionToNormals.push_back(res);
+}
+
 RegionId RegionDivider::fillConnectedFaces(NodeId startingEdgeId,
                                            std::vector<EdgeId> loopEdgeIds,
-                                           size_t axis) {
-  size_t targetRegion = regions[mesh.edges[startingEdgeId][0]];
+                                           Axis axis) {
+  RegionId targetRegion = regions[mesh.edges[startingEdgeId][0]];
+  addRegionNormals(targetRegion, axis);
   size_t newRegion = nbRegion;
   nbRegion++;
   std::vector<bool> processed(mesh.nbBoundaryEdge, false);
   std::queue<size_t> toProcess;
 
+  // newRegion is the smallest value
   Edge &startingEdge = mesh.edges[startingEdgeId];
   Vertex &firstVertex = mesh.vertices[startingEdge[0]];
   Vertex &secondVertex = mesh.vertices[startingEdge[1]];
@@ -139,6 +164,7 @@ std::vector<NodeId> RegionDivider::getCandidates(RegionId regionId) {
   for (NodeId nodeId : nodeIds) {
     ssize_t score = 0;
     for (size_t d = 0; d < DIMENSION; d++) {
+      // TODO take into account the sign of the axis normal
       if (axisNormals[d] && nodeNormals[nodeId][d])
         score++;
       if (axisNormals[d] && !nodeNormals[nodeId][d])
@@ -242,48 +268,118 @@ std::vector<NodeId> RegionDivider::computeCorners() {
   return regionCorners;
 }
 
-void RegionDivider::linkCorners(NodeId start, NodeId end) {
-  Graph g(mesh.nbBoundaryNode);
+std::vector<size_t> RegionDivider::linkCorners(NodeId start, NodeId end,
+                                               Axis a) {
+  Graph graph(mesh.nbBoundaryNode);
   AdjacencyWeight weights(mesh.nbBoundaryNode);
+  RegionId regionId = regions[start];
+  Axis firstAxis = (a + 1) % 3;
+  Axis secondAxis = (a + 2) % 3;
+  // bool increase = mesh.vertices[end][a] > mesh.vertices[start][a];
+  // if (firstAxis > secondAxis)
+  //   std::swap(firstAxis, secondAxis);
+  Vertex axis[2] = {
+      // left one
+      getSignedAxisVertex(regionToNormals[regionId][firstAxis], firstAxis),
+      // right one
+      getSignedAxisVertex(regionToNormals[regionId][secondAxis], secondAxis),
+  };
   for (EdgeId edgeId = 0; edgeId < mesh.nbBoundaryEdge; edgeId++) {
     Edge &e = mesh.edges[edgeId];
-    g.adjacency[e[0]].push_back(e[1]);
-    g.adjacency[e[0]].push_back(e[1]);
+    std::array<ssize_t, 2> faces = mesh.edgeToBoundaryFaces[edgeId];
+    std::array<Vertex, 2> normals = {
+        mesh.faces[faces[0]].computeNormal(mesh),
+        mesh.faces[faces[1]].computeNormal(mesh),
+    };
+    double distance = e.computeLength(mesh);
+    NodeId firstNode = e[0];
+    NodeId secondNode = e[1];
+    // bool firstHigher =
+    //     mesh.vertices[firstNode][a] > mesh.vertices[secondNode][a];
+    // if (increase ^ firstHigher) // xor
+    //   std::swap(firstNode, secondNode);
+    graph.adjacency[firstNode].push_back(secondNode);
+    graph.adjacency[secondNode].push_back(firstNode);
+    double lowestPenality = INFINITY;
+    for (size_t i = 0; i < 2; i++) {
+      double angle1 = std::acos(normals[i].dot(axis[0]));
+      double penality1 =
+          angle1 <= 0.955 ? 0 : std::pow((1 + angle1 - 0.955), 2);
+      double angle2 = std::acos(normals[(i + 1) % 2].dot(axis[1]));
+      double penality2 =
+          angle2 <= 0.955 ? 0 : std::pow((1 + angle2 - 0.955), 2);
+      double penality = (penality1 + penality2) / 2;
+      lowestPenality = std::min(lowestPenality, penality);
+    }
+    weights[firstNode].push_back(lowestPenality * distance);
+    weights[secondNode].push_back(lowestPenality * distance);
   }
+  return bellmanFordShortestPath(graph, weights, start, end);
 }
 
-void RegionDivider::computePaths(std::vector<NodeId> corners) {
+std::vector<std::vector<size_t>>
+RegionDivider::computePaths(std::vector<NodeId> corners) {
   assert(corners.size() == nbRegion);
+  auto sumBools = [](std::array<bool, DIMENSION> &v) {
+    return v[0] + v[1] + v[2];
+  };
+  std::vector<std::vector<size_t>> paths;
   for (RegionId startRegionId = 0; startRegionId < nbRegion; startRegionId++) {
-    std::vector<size_t> sharedLoops(nbRegion, 0);
+    std::vector<std::array<bool, DIMENSION>> sharedLoops(nbRegion,
+                                                         {false, false, false});
     for (Axis d = 0; d < DIMENSION; d++) {
       ZoneId zoneId = loopZones[d].getZone(startRegionId);
       for (RegionId other : loopZones[d][zoneId])
-        sharedLoops[other]++;
+        sharedLoops[other][d] = true;
     }
     for (RegionId endRegionId = 0; endRegionId < nbRegion; endRegionId++) {
       if (endRegionId == startRegionId)
         continue;
-      assert(sharedLoops[endRegionId] < 3);
-      if (sharedLoops[endRegionId] < 2 || endRegionId > startRegionId)
+      size_t score = sumBools(sharedLoops[endRegionId]);
+      assert(score < 3);
+      if (score != 2 || endRegionId > startRegionId)
         continue;
-      linkCorners(corners[startRegionId], corners[endRegionId]);
+      Axis a = 0;
+      while (sharedLoops[endRegionId][a])
+        a++;
+      std::vector<size_t> path =
+          linkCorners(corners[startRegionId], corners[endRegionId], a);
+      paths.push_back(path);
     }
   }
+
+  std::cout << "GOT " << paths.size() << " PATHS" << std::endl;
+  return paths;
 }
 
 void RegionDivider::saveMesh(std::string filename) {
   std::vector<NodeId> corners = computeCorners();
+
+  std::vector<size_t> nodePathId(mesh.vertices.size(), 0);
+  std::vector<std::vector<size_t>> paths = computePaths(corners);
+  savePaths("primary_paths.vtu", paths, mesh.vertices);
+
+  std::vector<Vertex> centerEdges(mesh.edges.size());
+  for (size_t i = 0; i < mesh.edges.size(); i++)
+    centerEdges[i] = mesh.edges[i].computeCenter(mesh);
+
   std::vector<bool> isCorner(mesh.vertices.size(), false);
 
   std::vector<ZoneId> xZone(mesh.vertices.size(), false);
+  std::vector<int> xSign(mesh.vertices.size(), NAN);
   std::vector<ZoneId> yZone(mesh.vertices.size(), false);
+  std::vector<int> ySign(mesh.vertices.size(), NAN);
   std::vector<ZoneId> zZone(mesh.vertices.size(), false);
+  std::vector<int> zSign(mesh.vertices.size(), NAN);
   for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
     RegionId regionId = regions[nodeId];
     xZone[nodeId] = loopZones[0].getZone(regionId);
     yZone[nodeId] = loopZones[1].getZone(regionId);
     zZone[nodeId] = loopZones[2].getZone(regionId);
+
+    xSign[nodeId] = getSignedAxisValue(regionToNormals[regionId][0]);
+    ySign[nodeId] = getSignedAxisValue(regionToNormals[regionId][1]);
+    zSign[nodeId] = getSignedAxisValue(regionToNormals[regionId][2]);
   }
 
   for (NodeId nodeId : corners)
@@ -295,8 +391,16 @@ void RegionDivider::saveMesh(std::string filename) {
   MeshSaver saver(mesh.vertices, mesh.edges, mesh.tets, filename);
   saver.addField<ElementType::Node>("region", colors);
   saver.addField<ElementType::Node>("isCorner", isCorner);
+
   saver.addField<ElementType::Node>("xZone", xZone);
   saver.addField<ElementType::Node>("yZone", yZone);
   saver.addField<ElementType::Node>("zZone", zZone);
+
+  saver.addField<ElementType::Node>("xSign", xSign);
+  saver.addField<ElementType::Node>("ySign", ySign);
+  saver.addField<ElementType::Node>("zSign", zSign);
+
+  saver.addField<ElementType::Node>("pathId", nodePathId);
   saver.saveMesh();
+  saver.saveEdges();
 }

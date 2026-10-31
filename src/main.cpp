@@ -60,7 +60,8 @@ int main(int argc, char *argv[]) {
   size_t i = 0;
   for (size_t axis = 0; axis < DIMENSION; axis++) {
     size_t startNode = startEdge[axis];
-    std::vector<size_t> res = shortestPath(edgeGraph, weights[axis], startNode);
+    std::vector<size_t> res =
+        bellmanFordShortestPath(edgeGraph, weights[axis], startNode, startNode);
     std::vector<bool> edgeIncluded(mesh.edges.size(), false);
     for (size_t i = 1; i < res.size(); i++) {
       size_t e = res[i];
@@ -77,78 +78,78 @@ int main(int argc, char *argv[]) {
   regionGraph.saveMesh("regions.vtu");
   return 0;
 
-  // In the order
-  // Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),
-  // Vertex(1, 0, 0), Vertex(1, 0, 1), Vertex(1, 1, 1), Vertex(1, 1, 0),
+  // // In the order
+  // // Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),
+  // // Vertex(1, 0, 0), Vertex(1, 0, 1), Vertex(1, 1, 1), Vertex(1, 1, 0),
 
-  // Shear cube
-  std::array<size_t, NB_CUBE_CORNER> cornerIds = {0, 1, 7, 6, 2, 3, 5, 4};
+  // // Shear cube
+  // std::array<size_t, NB_CUBE_CORNER> cornerIds = {0, 1, 7, 6, 2, 3, 5, 4};
 
-  // Hole cube
-  // std::array<size_t, NB_CUBE_CORNER> cornerIds = {3, 15, 14, 2, 7, 11, 10,
-  // 6};
-  //
-  // std::array<size_t, NB_CUBE_CORNER> = {3, 15, 14, 1, 7, 11, 10, 9};
+  // // Hole cube
+  // // std::array<size_t, NB_CUBE_CORNER> cornerIds = {3, 15, 14, 2, 7, 11, 10,
+  // // 6};
+  // //
+  // // std::array<size_t, NB_CUBE_CORNER> = {3, 15, 14, 1, 7, 11, 10, 9};
 
-  std::array<Vertex, NB_CUBE_CORNER> corners;
-  for (size_t i = 0; i < NB_CUBE_CORNER; i++) {
-    corners[i] = mesh.vertices[cornerIds[i]];
-    std::cout << corners[i].transpose() << std::endl;
-  }
-
-  // FRAME FIELD
-
-  std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
-
-  for (size_t t = 0; t < mesh.tets.size(); t++) {
-    auto &tet = mesh.tets[t];
-    // TODO: investigate order given to jacobian to minimize the rotation
-    // then we can apply rotation
-    Eigen::Matrix3d jacobian =
-        computeHexaJacobian(corners, tet.getBarycenter(mesh.vertices));
-    frames[t] = jacobian.inverse();
-    // frames[t] = Eigen::Matrix3d::Identity();
-  }
-  // for (Face &f : mesh.faces) {
-  //   if (f.adjacentCells[1] != UNDEFINED_ELEMENT)
-  //     continue; // NOT BOUNDARY
-  //   size_t cell = f.adjacentCells[0];
-  //   frames[cell] = Eigen::Matrix3d::Identity();
+  // std::array<Vertex, NB_CUBE_CORNER> corners;
+  // for (size_t i = 0; i < NB_CUBE_CORNER; i++) {
+  //   corners[i] = mesh.vertices[cornerIds[i]];
+  //   std::cout << corners[i].transpose() << std::endl;
   // }
 
-  std::cout << "Loaded tetrahedral mesh successfully.\n"
-            << "Vertices: " << mesh.vertices.size() << '\n'
-            << "Tetrahedra: " << mesh.tets.size() << '\n';
+  // // FRAME FIELD
 
-  BBox bbox = {
-      .max = {mind, mind, mind},
-      .min = {maxd, maxd, maxd},
-  };
+  // std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
 
-  for (size_t i = 0; i < mesh.vertices.size(); i++) {
-    auto &v = mesh.vertices[i];
-    for (size_t coord = 0; coord < DIMENSION; coord++) {
-      if (v[coord] < bbox.min[coord])
-        bbox.min[coord] = v[coord];
-      if (v[coord] > bbox.max[coord])
-        bbox.max[coord] = v[coord];
-    }
-  }
+  // for (size_t t = 0; t < mesh.tets.size(); t++) {
+  //   auto &tet = mesh.tets[t];
+  //   // TODO: investigate order given to jacobian to minimize the rotation
+  //   // then we can apply rotation
+  //   Eigen::Matrix3d jacobian =
+  //       computeHexaJacobian(corners, tet.getBarycenter(mesh.vertices));
+  //   frames[t] = jacobian.inverse();
+  //   // frames[t] = Eigen::Matrix3d::Identity();
+  // }
+  // // for (Face &f : mesh.faces) {
+  // //   if (f.adjacentCells[1] != UNDEFINED_ELEMENT)
+  // //     continue; // NOT BOUNDARY
+  // //   size_t cell = f.adjacentCells[0];
+  // //   frames[cell] = Eigen::Matrix3d::Identity();
+  // // }
 
-  CubeCoverIterator system(mesh, frames, cornerIds);
-  system.initialize();
+  // std::cout << "Loaded tetrahedral mesh successfully.\n"
+  //           << "Vertices: " << mesh.vertices.size() << '\n'
+  //           << "Tetrahedra: " << mesh.tets.size() << '\n';
 
-  std::vector<std::string> meshFiles;
+  // BBox bbox = {
+  //     .max = {mind, mind, mind},
+  //     .min = {maxd, maxd, maxd},
+  // };
 
-  try {
-    system.iterate();
-  } catch (std::exception &e) {
-    std::cout << "Error " << e.what() << std::endl;
-    exit(1);
-  }
+  // for (size_t i = 0; i < mesh.vertices.size(); i++) {
+  //   auto &v = mesh.vertices[i];
+  //   for (size_t coord = 0; coord < DIMENSION; coord++) {
+  //     if (v[coord] < bbox.min[coord])
+  //       bbox.min[coord] = v[coord];
+  //     if (v[coord] > bbox.max[coord])
+  //       bbox.max[coord] = v[coord];
+  //   }
+  // }
 
-  std::string filename = "output.vtu";
-  system.saveMesh(filename);
+  // CubeCoverIterator system(mesh, frames, cornerIds);
+  // system.initialize();
 
-  return EXIT_SUCCESS;
+  // std::vector<std::string> meshFiles;
+
+  // try {
+  //   system.iterate();
+  // } catch (std::exception &e) {
+  //   std::cout << "Error " << e.what() << std::endl;
+  //   exit(1);
+  // }
+
+  // std::string filename = "output.vtu";
+  // system.saveMesh(filename);
+
+  // return EXIT_SUCCESS;
 }

@@ -15,10 +15,6 @@
 #include <vtkUnstructuredGridReader.h>
 #include <vtkXMLUnstructuredGridReader.h>
 
-// ------------------------------------------------------------
-// Face normal
-// ------------------------------------------------------------
-
 Vertex Face::computeNormal(TetrahedralMesh &m) {
   const Vertex &p0 = m.vertices[nodes[0]];
   const Vertex &p1 = m.vertices[nodes[1]];
@@ -48,10 +44,6 @@ Vertex Face::computeNormal(TetrahedralMesh &m) {
   return normal;
 }
 
-// ------------------------------------------------------------
-// Tetrahedron barycenter
-// ------------------------------------------------------------
-
 Vertex Tetrahedron::getBarycenter(std::vector<Vertex> &meshVertices) const {
   Vertex res = Vertex::Zero();
 
@@ -60,10 +52,6 @@ Vertex Tetrahedron::getBarycenter(std::vector<Vertex> &meshVertices) const {
 
   return res / static_cast<double>(NB_NODE_PER_TET);
 }
-
-// ------------------------------------------------------------
-// Edge center
-// ------------------------------------------------------------
 
 Vertex Edge::computeCenter(TetrahedralMesh &m) const {
   Vertex res = Vertex::Zero();
@@ -74,9 +62,9 @@ Vertex Edge::computeCenter(TetrahedralMesh &m) const {
   return res / static_cast<double>(nodes.size());
 }
 
-// ------------------------------------------------------------
-// Edge direction
-// ------------------------------------------------------------
+double Edge::computeLength(TetrahedralMesh &m) const {
+  return (m.vertices[nodes[0]] - m.vertices[nodes[1]]).norm();
+};
 
 Vertex Edge::computeDir(TetrahedralMesh &m) const {
   return m.vertices[nodes[0]] - m.vertices[nodes[1]];

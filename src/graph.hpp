@@ -15,7 +15,8 @@ public:
   double getWeight(AdjacencyWeight &w, size_t from, size_t to);
 };
 
-std::vector<size_t> shortestPath(Graph &g, AdjacencyWeight &weights,
-                                 size_t startingNode);
+std::vector<size_t> bellmanFordShortestPath(Graph &g, AdjacencyWeight &weights,
+                                            size_t startingNode,
+                                            size_t endingNode);
 
 #endif
