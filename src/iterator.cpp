@@ -41,40 +41,6 @@ void CubeCoverIterator::fillCornerConstraints() {
   size_t offset = sizeLaplace;
   size_t constraintId = 0;
 
-  // std::array<std::array<size_t, 4>, 6> sharingCoord = {};
-  // sharingCoord[0] = {0, 1, 2, 3}; // X+
-  // sharingCoord[1] = {4, 5, 6, 7}; // X-
-  // sharingCoord[2] = {0, 1, 4, 5}; // Y+
-  // sharingCoord[3] = {2, 3, 6, 7}; // Y-
-  // sharingCoord[4] = {0, 3, 4, 7}; // Z+
-  // sharingCoord[5] = {1, 2, 5, 6}; // Z-
-
-  // for (size_t i = 0; i < 2; i++) {
-  //   size_t d = i / 2;
-  //   size_t colFirstNode = cornerIds[sharingCoord[i][0]] * DIMENSION + d;
-  //   for (size_t j = 1; j < 4; j++) {
-  //     size_t col = cornerIds[sharingCoord[i][j]] * DIMENSION + d;
-  //     size_t row = offset + constraintId;
-  //     A.coeffRef(row, col) = 1;
-  //     A.coeffRef(col, row) = 1;
-
-  //     A.coeffRef(row, colFirstNode) = -1;
-  //     A.coeffRef(colFirstNode, row) = -1;
-
-  //     b.coeffRef(row) = 0;
-  //     constraintId++;
-  //   }
-  // }
-
-  // for (size_t d = 0; d < DIMENSION; d++) {
-  //   size_t row = offset + constraintId;
-  //   size_t col = cornerIds[0] * DIMENSION + d;
-  //   A.coeffRef(row, col) = 1;
-  //   A.coeffRef(col, row) = 1;
-  //   b.coeffRef(row) = 0;
-  //   constraintId++;
-  // }
-
   for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
     for (Axis d = 0; d < DIMENSION; d++) {
       if (nodeToAxisConstraints[nodeId][d] == ZERO)
@@ -155,6 +121,19 @@ void CubeCoverIterator::saveMesh(std::string path) {
   std::vector<Eigen::Vector3d> frameY(mesh.tets.size());
   std::vector<Eigen::Vector3d> frameZ(mesh.tets.size());
 
+  std::array<std::vector<int>, DIMENSION> constraints;
+  for (Axis d = 0; d < DIMENSION; d++)
+    constraints[d] = std::vector<int>(mesh.tets.size(), 0);
+
+  for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
+    for (Axis d = 0; d < DIMENSION; d++) {
+      if (nodeToAxisConstraints[nodeId][d] == ZERO)
+        continue;
+      constraints[d][nodeId] =
+          getSignedAxisValue(nodeToAxisConstraints[nodeId][d]);
+    }
+  }
+
   for (size_t tetId = 0; tetId < mesh.tets.size(); tetId++) {
     frameX[tetId] = frames[tetId].col(0);
     frameY[tetId] = frames[tetId].col(1);
@@ -165,5 +144,10 @@ void CubeCoverIterator::saveMesh(std::string path) {
   saver.addField<ElementType::CellType>("frameX", frameX);
   saver.addField<ElementType::CellType>("frameY", frameY);
   saver.addField<ElementType::CellType>("frameZ", frameZ);
+
+  saver.addField<ElementType::NodeType>("constraintX", constraints[0]);
+  saver.addField<ElementType::NodeType>("constraintY", constraints[1]);
+  saver.addField<ElementType::NodeType>("constraintZ", constraints[2]);
+
   saver.saveMesh();
 }
