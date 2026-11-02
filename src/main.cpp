@@ -129,6 +129,7 @@ int main(int argc, char *argv[]) {
     Eigen::Matrix3d jacobian =
         computeHexaJacobian(cornerVertices, tet.getBarycenter(mesh.vertices));
     frames[t] = jacobian.inverse();
+    // frames[t] = Eigen::Matrix3d::Identity();
   }
   // for (Face &f : mesh.faces) {
   //   if (f.adjacentCells[1] != UNDEFINED_ELEMENT)
@@ -163,11 +164,11 @@ int main(int argc, char *argv[]) {
 
   try {
     system.solve();
-    system.saveMesh("polycube.vtu");
   } catch (std::exception &e) {
     std::cout << "Error " << e.what() << std::endl;
     exit(1);
   }
+  system.saveMesh("polycube.vtu");
 
   // std::string filename = "output.vtu";
   // system.saveMesh(filename);

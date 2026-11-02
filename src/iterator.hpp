@@ -10,7 +10,7 @@ class CubeCoverIterator {
 private:
   size_t getId(size_t tetId, size_t localNode, size_t coord);
 
-  void fillLaplaceTop();
+  void fillLaplace();
   void debugSolvedGradients();
   void fillConstraints();
   Vertex getVertex(size_t tetId, size_t localNodeId);

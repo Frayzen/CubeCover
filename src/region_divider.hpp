@@ -47,7 +47,7 @@ using PerDimNormals = std::array<IntegerSign, DIMENSION>;
 inline int computePerDimNormalId(PerDimNormals &n) {
   int id = 0;
   for (size_t d = 0; d < DIMENSION; d++)
-    id += getSignedAxisValue(n[d]) * (2 << d);
+    id += getIntegerSignValue(n[d]) * (2 << d);
   return id;
 }
 

@@ -6,13 +6,14 @@
 #include "signed_axis.hpp"
 #include "vertex.hpp"
 #include <Eigen/IterativeLinearSolvers>
+#include <Eigen/SparseLU>
 
 size_t CubeCoverIterator::getId(size_t tetId, size_t localNode, size_t coord) {
   const size_t vertexId = mesh.tets[tetId][localNode];
   return vertexId * DIMENSION + coord;
 }
 
-void CubeCoverIterator::fillLaplaceTop() {
+void CubeCoverIterator::fillLaplace() {
   for (size_t i = 0; i < mesh.tets.size(); ++i) {
     const DiffTetShapeFunctions shapeFuncs = computeDiffShapeFunctions(mesh, i);
 
@@ -49,7 +50,7 @@ void CubeCoverIterator::fillConstraints() {
       size_t col = nodeId * DIMENSION + d;
       A.coeffRef(row, col) = 1;
       A.coeffRef(col, row) = 1;
-      b.coeffRef(row) = getSignedAxisValue(nodeToAxisConstraints[nodeId][d]);
+      b.coeffRef(row) = getIntegerSignValue(nodeToAxisConstraints[nodeId][d]);
       constraintId++;
     }
   }
@@ -59,38 +60,71 @@ void CubeCoverIterator::fillConstraints() {
 
 void CubeCoverIterator::initialize() {
   std::cout << "Initializing...\n";
-  fillLaplaceTop();
+  fillLaplace();
   fillConstraints();
   A.makeCompressed();
 }
 void CubeCoverIterator::solve() {
   std::cout << "Solving..." << std::endl;
 
-  Eigen::LeastSquaresConjugateGradient<Eigen::SparseMatrix<double>> solver;
+  // Eigen::LeastSquaresConjugateGradient<Eigen::SparseMatrix<double>> solver;
 
-  solver.setMaxIterations(10000);
-  solver.setTolerance(1e-15);
+  // solver.setMaxIterations(10000);
+  // solver.setTolerance(1e-15);
+
+  // solver.compute(A);
+
+  // if (solver.info() != Eigen::Success) {
+  //   std::cerr << "Failed to initialize solver\n";
+  //   throw std::runtime_error("Solver initialization failed");
+  // }
+
+  // x = solver.solveWithGuess(b, x);
+
+  // std::cerr << "Iterations: " << solver.iterations() << '\n';
+  // std::cerr << "Estimated error: " << solver.error() << '\n';
+
+  // const double residual = (A * x - b).norm();
+
+  // std::cerr << "Residual: " << residual << '\n';
+
+  // if (solver.info() != Eigen::Success) {
+  //   std::cerr << "Least squares solver failed\n";
+  //   throw std::runtime_error("Least squares solver failed");
+  // }
+
+  Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
 
   solver.compute(A);
 
   if (solver.info() != Eigen::Success) {
-    std::cerr << "Failed to initialize solver\n";
-    throw std::runtime_error("Solver initialization failed");
+    throw std::runtime_error("Factorization failed");
   }
 
-  x = solver.solveWithGuess(b, x);
-
-  std::cerr << "Iterations: " << solver.iterations() << '\n';
-  std::cerr << "Estimated error: " << solver.error() << '\n';
-
-  const double residual = (A * x - b).norm();
-
-  std::cerr << "Residual: " << residual << '\n';
+  x = solver.solve(b);
 
   if (solver.info() != Eigen::Success) {
-    std::cerr << "Least squares solver failed\n";
-    throw std::runtime_error("Least squares solver failed");
+    throw std::runtime_error("Solving failed");
   }
+
+  double maxViolation = 0.0;
+
+  for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
+    for (Axis d = 0; d < DIMENSION; d++) {
+      auto constraint = nodeToAxisConstraints[nodeId][d];
+
+      if (constraint == ZERO)
+        continue;
+
+      size_t col = nodeId * DIMENSION + d;
+
+      double expected = getIntegerSignValue(constraint);
+
+      maxViolation = std::max(maxViolation, std::abs(x[col] - expected));
+    }
+  }
+
+  std::cout << "Maximum constraint violation: " << maxViolation << '\n';
 }
 
 Vertex CubeCoverIterator::getVertex(size_t tetId, size_t localNodeId) {
@@ -123,14 +157,14 @@ void CubeCoverIterator::saveMesh(std::string path) {
 
   std::array<std::vector<int>, DIMENSION> constraints;
   for (Axis d = 0; d < DIMENSION; d++)
-    constraints[d] = std::vector<int>(mesh.tets.size(), 0);
+    constraints[d] = std::vector<int>(mesh.vertices.size(), 0);
 
   for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
     for (Axis d = 0; d < DIMENSION; d++) {
       if (nodeToAxisConstraints[nodeId][d] == ZERO)
         continue;
       constraints[d][nodeId] =
-          getSignedAxisValue(nodeToAxisConstraints[nodeId][d]);
+          getIntegerSignValue(nodeToAxisConstraints[nodeId][d]);
     }
   }
 
@@ -140,7 +174,9 @@ void CubeCoverIterator::saveMesh(std::string path) {
     frameZ[tetId] = frames[tetId].col(2);
   }
 
-  MeshSaver saver(mesh, path);
+  TetrahedralMesh newMesh(mesh);
+  newMesh.vertices = vertices;
+  MeshSaver saver(newMesh, path);
   saver.addField<ElementType::CellType>("frameX", frameX);
   saver.addField<ElementType::CellType>("frameY", frameY);
   saver.addField<ElementType::CellType>("frameZ", frameZ);

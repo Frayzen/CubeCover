@@ -9,7 +9,7 @@
 using Axis = int;
 enum IntegerSign { POSITIVE, NEGATIVE, ZERO, UNDEFINED };
 
-inline int getSignedAxisValue(IntegerSign &a) {
+inline int getIntegerSignValue(IntegerSign &a) {
   switch (a) {
   case POSITIVE:
     return 1;
@@ -25,7 +25,7 @@ inline int getSignedAxisValue(IntegerSign &a) {
 
 inline Vertex getSignedAxisVertex(IntegerSign &sa, Axis a) {
   Vertex v = Vertex::Zero();
-  v[a] = getSignedAxisValue(sa);
+  v[a] = getIntegerSignValue(sa);
   return v;
 }
 

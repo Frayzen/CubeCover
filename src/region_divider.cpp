@@ -352,10 +352,16 @@ void RegionDivider::saveMesh(std::string filename) {
   std::vector<int> colorSignX(mesh.vertices.size());
   std::vector<int> colorSignY(mesh.vertices.size());
   std::vector<int> colorSignZ(mesh.vertices.size());
+  std::vector<int> axis(mesh.vertices.size(), 0);
   for (NodeId i = 0; i < mesh.nbBoundaryNode; i++) {
-    colorSignX[i] = getSignedAxisValue(colorization[i][0]);
-    colorSignY[i] = getSignedAxisValue(colorization[i][1]);
-    colorSignZ[i] = getSignedAxisValue(colorization[i][2]);
+    colorSignX[i] = getIntegerSignValue(colorization[i][0]);
+    colorSignY[i] = getIntegerSignValue(colorization[i][1]);
+    colorSignZ[i] = getIntegerSignValue(colorization[i][2]);
+
+    for (size_t d = 0; d < DIMENSION; d++) {
+      if (colorization[i][d] != ZERO)
+        axis[i] = d;
+    }
   }
 
   savePaths("primary_paths.vtu", paths, mesh.vertices);
@@ -372,15 +378,16 @@ void RegionDivider::saveMesh(std::string filename) {
   std::vector<int> ySign(mesh.vertices.size(), INT_NAN);
   std::vector<ZoneId> zZone(mesh.vertices.size(), false);
   std::vector<int> zSign(mesh.vertices.size(), INT_NAN);
+
   for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
     RegionId regionId = regions[nodeId];
     xZone[nodeId] = loopZones[0].getZone(regionId);
     yZone[nodeId] = loopZones[1].getZone(regionId);
     zZone[nodeId] = loopZones[2].getZone(regionId);
 
-    xSign[nodeId] = getSignedAxisValue(regionToNormals[regionId][0]);
-    ySign[nodeId] = getSignedAxisValue(regionToNormals[regionId][1]);
-    zSign[nodeId] = getSignedAxisValue(regionToNormals[regionId][2]);
+    xSign[nodeId] = getIntegerSignValue(regionToNormals[regionId][0]);
+    ySign[nodeId] = getIntegerSignValue(regionToNormals[regionId][1]);
+    zSign[nodeId] = getIntegerSignValue(regionToNormals[regionId][2]);
   }
 
   for (NodeId nodeId : corners)
@@ -400,6 +407,8 @@ void RegionDivider::saveMesh(std::string filename) {
   saver.addField<ElementType::NodeType>("xSign", xSign);
   saver.addField<ElementType::NodeType>("ySign", ySign);
   saver.addField<ElementType::NodeType>("zSign", zSign);
+
+  saver.addField<ElementType::NodeType>("axis", axis);
 
   saver.addField<ElementType::NodeType>("colorSignX", colorSignX);
   saver.addField<ElementType::NodeType>("colorSignY", colorSignY);
