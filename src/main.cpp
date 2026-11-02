@@ -7,6 +7,7 @@
 #include "path_saver.hpp"
 #include "region_divider.hpp"
 #include "shape_functions.hpp"
+#include "signed_axis.hpp"
 #include <Eigen/Core>
 #include <Eigen/IterativeLinearSolvers>
 
@@ -76,47 +77,65 @@ int main(int argc, char *argv[]) {
     centerEdges[i] = mesh.edges[i].computeCenter(mesh);
 
   savePaths("paths.vtu", regionGraph.paths, centerEdges);
+
   regionGraph.saveMesh("regions.vtu");
-  return 0;
 
-  // // In the order
-  // // Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),
-  // // Vertex(1, 0, 0), Vertex(1, 0, 1), Vertex(1, 1, 1), Vertex(1, 1, 0),
+  std::vector<NodeId> corners = regionGraph.computeCorners();
+  std::vector<Path> paths = regionGraph.computePaths(corners);
+  std::vector<PerDimNormals> colorization = regionGraph.colorizeMesh(paths);
 
-  // // Shear cube
-  // std::array<size_t, NB_CUBE_CORNER> cornerIds = {0, 1, 7, 6, 2, 3, 5, 4};
+  // In the order
+  // Vertex(0, 0, 0), Vertex(0, 0, 1), Vertex(0, 1, 1), Vertex(0, 1, 0),
+  // Vertex(1, 0, 0), Vertex(1, 0, 1), Vertex(1, 1, 1), Vertex(1, 1, 0),
 
-  // // Hole cube
-  // // std::array<size_t, NB_CUBE_CORNER> cornerIds = {3, 15, 14, 2, 7, 11, 10,
-  // // 6};
-  // //
-  // // std::array<size_t, NB_CUBE_CORNER> = {3, 15, 14, 1, 7, 11, 10, 9};
+  PerDimNormals cornerNormalsOrder[NB_NODE_PER_HEX] = {
+      {NEGATIVE, NEGATIVE, NEGATIVE}, {NEGATIVE, NEGATIVE, POSITIVE},
+      {NEGATIVE, POSITIVE, POSITIVE}, {NEGATIVE, POSITIVE, NEGATIVE},
+      {POSITIVE, NEGATIVE, NEGATIVE}, {POSITIVE, NEGATIVE, POSITIVE},
+      {POSITIVE, POSITIVE, POSITIVE}, {POSITIVE, POSITIVE, NEGATIVE},
+  };
 
-  // std::array<Vertex, NB_CUBE_CORNER> corners;
-  // for (size_t i = 0; i < NB_CUBE_CORNER; i++) {
-  //   corners[i] = mesh.vertices[cornerIds[i]];
-  //   std::cout << corners[i].transpose() << std::endl;
-  // }
+  // Shear cube
+  // std::array<size_t, NB_NODE_PER_HEX> cornerIds = {0, 1, 7, 6, 2, 3, 5, 4};
+
+  // Hole cube
+  // std::array<size_t, NB_CUBE_CORNER> cornerIds = {3, 15, 14, 2, 7, 11, 10,
+  // 6};
+  //
+  // std::array<size_t, NB_CUBE_CORNER> = {3, 15, 14, 1, 7, 11, 10, 9};
 
   // // FRAME FIELD
 
-  // std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
+  std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
 
-  // for (size_t t = 0; t < mesh.tets.size(); t++) {
-  //   auto &tet = mesh.tets[t];
-  //   // TODO: investigate order given to jacobian to minimize the rotation
-  //   // then we can apply rotation
-  //   Eigen::Matrix3d jacobian =
-  //       computeHexaJacobian(corners, tet.getBarycenter(mesh.vertices));
-  //   frames[t] = jacobian.inverse();
-  //   // frames[t] = Eigen::Matrix3d::Identity();
+  std::array<Vertex, NB_NODE_PER_HEX> cornerVertices;
+
+  for (size_t i = 0; i < NB_NODE_PER_HEX; i++) {
+    for (size_t j = 0; j < NB_NODE_PER_HEX; j++) {
+      RegionId regionId = regionGraph.getNodeRegion(corners[j]);
+      PerDimNormals normals = regionGraph.getRegionNormals(regionId);
+      if (normals == cornerNormalsOrder[i]) {
+        cornerVertices[i] = mesh.vertices[corners[j]];
+        break;
+      }
+    }
+  }
+
+  for (size_t t = 0; t < mesh.tets.size(); t++) {
+    auto &tet = mesh.tets[t];
+    // TODO: investigate order given to jacobian to minimize the rotation
+    // then we can apply rotation
+    Eigen::Matrix3d jacobian =
+        computeHexaJacobian(cornerVertices, tet.getBarycenter(mesh.vertices));
+    frames[t] = jacobian.inverse();
+    // frames[t] = Eigen::Matrix3d::Identity();
+  }
+  // for (Face &f : mesh.faces) {
+  //   if (f.adjacentCells[1] != UNDEFINED_ELEMENT)
+  //     continue; // NOT BOUNDARY
+  //   size_t cell = f.adjacentCells[0];
+  //   frames[cell] = Eigen::Matrix3d::Identity();
   // }
-  // // for (Face &f : mesh.faces) {
-  // //   if (f.adjacentCells[1] != UNDEFINED_ELEMENT)
-  // //     continue; // NOT BOUNDARY
-  // //   size_t cell = f.adjacentCells[0];
-  // //   frames[cell] = Eigen::Matrix3d::Identity();
-  // // }
 
   // std::cout << "Loaded tetrahedral mesh successfully.\n"
   //           << "Vertices: " << mesh.vertices.size() << '\n'
@@ -137,17 +156,18 @@ int main(int argc, char *argv[]) {
   //   }
   // }
 
-  // CubeCoverIterator system(mesh, frames, cornerIds);
-  // system.initialize();
+  CubeCoverIterator system(mesh, frames, colorization);
+  system.initialize();
 
-  // std::vector<std::string> meshFiles;
+  std::vector<std::string> meshFiles;
 
-  // try {
-  //   system.iterate();
-  // } catch (std::exception &e) {
-  //   std::cout << "Error " << e.what() << std::endl;
-  //   exit(1);
-  // }
+  try {
+    system.solve();
+    system.saveMesh("polycube.vtu");
+  } catch (std::exception &e) {
+    std::cout << "Error " << e.what() << std::endl;
+    exit(1);
+  }
 
   // std::string filename = "output.vtu";
   // system.saveMesh(filename);

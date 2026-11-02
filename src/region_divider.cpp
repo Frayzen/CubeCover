@@ -48,8 +48,8 @@ void RegionDivider::computeNodeNormals() {
 }
 
 void RegionDivider::addRegionNormals(RegionId targetRegion, Axis axis) {
-  RegionNormals &targetNormals = regionToNormals[targetRegion];
-  RegionNormals res = {UNDEFINED, UNDEFINED, UNDEFINED};
+  PerDimNormals &targetNormals = regionToNormals[targetRegion];
+  PerDimNormals res = {UNDEFINED, UNDEFINED, UNDEFINED};
   for (Axis d = 0; d < DIMENSION; d++) {
     if (d == axis) {
       if (targetNormals[d] == UNDEFINED) {
@@ -345,92 +345,18 @@ std::vector<Path> RegionDivider::computePaths(std::vector<NodeId> corners) {
   return paths;
 }
 
-std::vector<Axis> RegionDivider::colorizeMesh(std::vector<Path> &paths) {
-  std::vector<Axis> res(mesh.nbBoundaryFace, 3);
-  std::vector<std::array<bool, DIMENSION>> nodeToAxis(mesh.nbBoundaryNode,
-                                                      {false, false, false});
-  for (const auto &[nodes, axis] : paths) {
-    for (NodeId node : nodes) {
-      nodeToAxis[node][axis] = true;
-    }
-  }
-  auto sumBools = [](const std::array<bool, DIMENSION> &v) {
-    return static_cast<size_t>(v[0]) + static_cast<size_t>(v[1]) +
-           static_cast<size_t>(v[2]);
-  };
-  auto isBoundaryEdge = [&](EdgeId edgeId) {
-    NodeId n0 = mesh.edges[edgeId][0];
-    NodeId n1 = mesh.edges[edgeId][1];
-    if (sumBools(nodeToAxis[n0]) == DIMENSION ||
-        sumBools(nodeToAxis[n1]) == DIMENSION) {
-      return true;
-    }
-    for (Axis a = 0; a < DIMENSION; ++a) {
-      if (nodeToAxis[n0][a] && nodeToAxis[n1][a])
-        return true;
-    }
-    return false;
-  };
-  std::vector<bool> processed(mesh.nbBoundaryFace, false);
-  std::queue<FaceId> toProcess;
-  for (FaceId f = 0; f < mesh.nbBoundaryFace; ++f) {
-    if (processed[f])
-      continue;
-    std::vector<FaceId> currentBatch;
-    std::array<bool, DIMENSION> curBatchAxis = {false, false, false};
-
-    toProcess.push(f);
-    processed[f] = true;
-
-    while (!toProcess.empty()) {
-      FaceId faceId = toProcess.front();
-      toProcess.pop();
-      currentBatch.push_back(faceId);
-      for (size_t i = 0; i < NB_NODE_PER_FACE; ++i) {
-        NodeId nodeId = mesh.faces[faceId][i];
-        if (sumBools(nodeToAxis[nodeId]) == DIMENSION)
-          continue;
-
-        for (Axis a = 0; a < DIMENSION; ++a) {
-          curBatchAxis[a] |= nodeToAxis[nodeId][a];
-        }
-      }
-      for (EdgeId edgeId : mesh.faceToEdges[faceId]) {
-
-        if (isBoundaryEdge(edgeId))
-          continue;
-
-        for (FaceId adjFaceId : mesh.edgeToBoundaryFaces[edgeId]) {
-          if (processed[adjFaceId])
-            continue;
-
-          processed[adjFaceId] = true;
-          toProcess.push(adjFaceId);
-        }
-      }
-    }
-    assert(sumBools(curBatchAxis) == 2);
-    Axis normal = 0;
-    for (Axis a = 0; a < DIMENSION; ++a) {
-      if (!curBatchAxis[a]) {
-        normal = a;
-        break;
-      }
-    }
-    for (FaceId faceId : currentBatch)
-      res[faceId] = normal;
-  }
-
-  return res;
-}
-
 void RegionDivider::saveMesh(std::string filename) {
   std::vector<NodeId> corners = computeCorners();
-
-  std::vector<size_t> nodePathId(mesh.vertices.size(), 0);
   std::vector<Path> paths = computePaths(corners);
-
-  std::vector<Axis> colorization = colorizeMesh(paths);
+  std::vector<PerDimNormals> colorization = colorizeMesh(paths);
+  std::vector<int> colorSignX(mesh.vertices.size());
+  std::vector<int> colorSignY(mesh.vertices.size());
+  std::vector<int> colorSignZ(mesh.vertices.size());
+  for (NodeId i = 0; i < mesh.nbBoundaryNode; i++) {
+    colorSignX[i] = getSignedAxisValue(colorization[i][0]);
+    colorSignY[i] = getSignedAxisValue(colorization[i][1]);
+    colorSignZ[i] = getSignedAxisValue(colorization[i][2]);
+  }
 
   savePaths("primary_paths.vtu", paths, mesh.vertices);
 
@@ -441,11 +367,11 @@ void RegionDivider::saveMesh(std::string filename) {
   std::vector<bool> isCorner(mesh.vertices.size(), false);
 
   std::vector<ZoneId> xZone(mesh.vertices.size(), false);
-  std::vector<int> xSign(mesh.vertices.size(), NAN);
+  std::vector<int> xSign(mesh.vertices.size(), INT_NAN);
   std::vector<ZoneId> yZone(mesh.vertices.size(), false);
-  std::vector<int> ySign(mesh.vertices.size(), NAN);
+  std::vector<int> ySign(mesh.vertices.size(), INT_NAN);
   std::vector<ZoneId> zZone(mesh.vertices.size(), false);
-  std::vector<int> zSign(mesh.vertices.size(), NAN);
+  std::vector<int> zSign(mesh.vertices.size(), INT_NAN);
   for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
     RegionId regionId = regions[nodeId];
     xZone[nodeId] = loopZones[0].getZone(regionId);
@@ -461,7 +387,7 @@ void RegionDivider::saveMesh(std::string filename) {
     isCorner[nodeId] = true;
   std::vector<int> colors(mesh.vertices.size(), -1);
   for (size_t nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++)
-    colors[nodeId] = static_cast<size_t>(getFaceRegion(nodeId));
+    colors[nodeId] = static_cast<size_t>(getNodeRegion(nodeId));
 
   MeshSaver saver(mesh, filename);
   saver.addField<ElementType::NodeType>("region", colors);
@@ -475,10 +401,9 @@ void RegionDivider::saveMesh(std::string filename) {
   saver.addField<ElementType::NodeType>("ySign", ySign);
   saver.addField<ElementType::NodeType>("zSign", zSign);
 
-  saver.addField<ElementType::NodeType>("pathId", nodePathId);
-
-  saver.addField<ElementType::FaceType>("colorField", colorization);
+  saver.addField<ElementType::NodeType>("colorSignX", colorSignX);
+  saver.addField<ElementType::NodeType>("colorSignY", colorSignY);
+  saver.addField<ElementType::NodeType>("colorSignZ", colorSignZ);
   saver.saveMesh();
   saver.saveEdges();
-  saver.saveFaces();
 }

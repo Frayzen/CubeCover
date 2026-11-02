@@ -43,7 +43,13 @@ public:
   }
 };
 
-using RegionNormals = std::array<SignedAxis, DIMENSION>;
+using PerDimNormals = std::array<IntegerSign, DIMENSION>;
+inline int computePerDimNormalId(PerDimNormals &n) {
+  int id = 0;
+  for (size_t d = 0; d < DIMENSION; d++)
+    id += getSignedAxisValue(n[d]) * (2 << d);
+  return id;
+}
 
 class RegionDivider {
 private:
@@ -51,7 +57,7 @@ private:
   TetrahedralMesh &mesh;
   size_t nbRegion;
   ManyToOne<NodeId, RegionId> regions;
-  std::vector<RegionNormals> regionToNormals;
+  std::vector<PerDimNormals> regionToNormals;
   AxisLoopZones loopZones[DIMENSION];
 
   std::vector<std::array<bool, DIMENSION>> nodeNormals;
@@ -61,15 +67,18 @@ private:
   std::vector<size_t> linkCorners(NodeId start, NodeId end, Axis a);
 
   RegionId fillConnectedFaces(size_t startingFace, std::vector<size_t> edgeIds,
-                              size_t axis);
+                              Axis axis);
 
 public:
   std::vector<Path> paths;
   RegionDivider(EdgeGraph &edgeGraph);
 
   void insertLoop(std::vector<size_t> edgesId, size_t axis);
-  size_t getFaceRegion(size_t nodeId) { return regions[nodeId]; };
-  std::vector<Axis> colorizeMesh(std::vector<Path> &paths);
+  RegionId getNodeRegion(NodeId nodeId) { return regions[nodeId]; };
+  PerDimNormals getRegionNormals(RegionId regionId) {
+    return regionToNormals[regionId];
+  };
+  std::vector<PerDimNormals> colorizeMesh(std::vector<Path> &paths);
 
   std::vector<NodeId> computeCorners();
   std::vector<Path> computePaths(std::vector<NodeId> corners);

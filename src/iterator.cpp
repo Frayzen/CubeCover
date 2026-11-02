@@ -3,6 +3,7 @@
 #include "constants.hpp"
 #include "mesh_saver.hpp"
 #include "shape_functions.hpp"
+#include "signed_axis.hpp"
 #include "vertex.hpp"
 #include <Eigen/IterativeLinearSolvers>
 
@@ -65,13 +66,26 @@ void CubeCoverIterator::fillCornerConstraints() {
   //   }
   // }
 
-  for (size_t d = 0; d < DIMENSION; d++) {
-    size_t row = offset + constraintId;
-    size_t col = cornerIds[0] * DIMENSION + d;
-    A.coeffRef(row, col) = 1;
-    A.coeffRef(col, row) = 1;
-    b.coeffRef(row) = 0;
-    constraintId++;
+  // for (size_t d = 0; d < DIMENSION; d++) {
+  //   size_t row = offset + constraintId;
+  //   size_t col = cornerIds[0] * DIMENSION + d;
+  //   A.coeffRef(row, col) = 1;
+  //   A.coeffRef(col, row) = 1;
+  //   b.coeffRef(row) = 0;
+  //   constraintId++;
+  // }
+
+  for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
+    for (Axis d = 0; d < DIMENSION; d++) {
+      if (nodeToAxisConstraints[nodeId][d] == ZERO)
+        continue;
+      size_t row = offset + constraintId;
+      size_t col = nodeId * DIMENSION + d;
+      A.coeffRef(row, col) = 1;
+      A.coeffRef(col, row) = 1;
+      b.coeffRef(row) = getSignedAxisValue(nodeToAxisConstraints[nodeId][d]);
+      constraintId++;
+    }
   }
 
   assert(constraintId == sizeConstraint);
@@ -83,11 +97,6 @@ void CubeCoverIterator::initialize() {
   fillCornerConstraints();
   A.makeCompressed();
 }
-void CubeCoverIterator::iterate() {
-  solve();
-  saveMesh("nospanning.vtu");
-}
-
 void CubeCoverIterator::solve() {
   std::cout << "Solving..." << std::endl;
 
@@ -142,7 +151,19 @@ void CubeCoverIterator::saveMesh(std::string path) {
     val << x[base], x[base + 1], x[base + 2];
     vertices.push_back(val);
   }
+  std::vector<Eigen::Vector3d> frameX(mesh.tets.size());
+  std::vector<Eigen::Vector3d> frameY(mesh.tets.size());
+  std::vector<Eigen::Vector3d> frameZ(mesh.tets.size());
+
+  for (size_t tetId = 0; tetId < mesh.tets.size(); tetId++) {
+    frameX[tetId] = frames[tetId].col(0);
+    frameY[tetId] = frames[tetId].col(1);
+    frameZ[tetId] = frames[tetId].col(2);
+  }
+
   MeshSaver saver(mesh, path);
-  saver.addField<ElementType::CellType>("frames", frames);
+  saver.addField<ElementType::CellType>("frameX", frameX);
+  saver.addField<ElementType::CellType>("frameY", frameY);
+  saver.addField<ElementType::CellType>("frameZ", frameZ);
   saver.saveMesh();
 }

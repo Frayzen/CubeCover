@@ -23,6 +23,8 @@ struct Edge {
   Vertex computeDir(TetrahedralMesh &m) const;
   double computeLength(TetrahedralMesh &m) const;
   bool containsNode(size_t nodeId) const;
+  auto begin() { return nodes.begin(); };
+  auto end() { return nodes.end(); };
 };
 
 struct Tetrahedron {
@@ -41,6 +43,8 @@ struct Tetrahedron {
   };
 
   Vertex getBarycenter(std::vector<Vertex> &meshVertices) const;
+  auto begin() { return nodes.begin(); };
+  auto end() { return nodes.end(); };
 };
 
 struct Face {
@@ -52,6 +56,8 @@ struct Face {
   size_t &operator[](size_t i) { return nodes[i]; }
 
   Vertex computeNormal(TetrahedralMesh &m);
+  auto begin() { return nodes.begin(); };
+  auto end() { return nodes.end(); };
 };
 
 struct TetrahedralMesh {

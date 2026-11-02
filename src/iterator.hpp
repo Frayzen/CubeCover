@@ -3,6 +3,7 @@
 
 #include "constants.hpp"
 #include "mesh_loader.hpp"
+#include "region_divider.hpp"
 #include <Eigen/SparseCore>
 class CubeCoverIterator {
 
@@ -12,17 +13,24 @@ private:
   void fillLaplaceTop();
   void debugSolvedGradients();
   void fillCornerConstraints();
-  void solve();
   Vertex getVertex(size_t tetId, size_t localNodeId);
   std::array<Vertex, NB_NODE_PER_TET> getTetrahedraVertices(size_t tetId);
 
 public:
   CubeCoverIterator(TetrahedralMesh &m, std::vector<Eigen::Matrix3d> &frames,
-                    std::array<size_t, NB_CUBE_CORNER> cornerIds)
+                    std::vector<PerDimNormals> nodeToAxisConstraints)
       : mesh(m), frames(frames), sizeLaplace(mesh.vertices.size() * DIMENSION),
-        sizeConstraint(3 * 0 + 3), cornerIds(cornerIds) {
+        sizeConstraint(0), nodeToAxisConstraints(nodeToAxisConstraints) {
+
+    for (NodeId nodeId = 0; nodeId < mesh.nbBoundaryNode; nodeId++) {
+      for (Axis d = 0; d < DIMENSION; d++) {
+        assert(nodeToAxisConstraints[nodeId][d] != UNDEFINED);
+        if (nodeToAxisConstraints[nodeId][d] != ZERO)
+          sizeConstraint++;
+      }
+    }
+
     const size_t N = sizeLaplace + sizeConstraint;
-    // const size_t N = sizeLaplace;
 
     A = Eigen::SparseMatrix<double>(N, N);
     A.reserve(N);
@@ -33,15 +41,10 @@ public:
       for (size_t d = 0; d < DIMENSION; d++)
         x[DIMENSION * i + d] = mesh.vertices[i][d];
     }
-
-    scalarLocation.resize(sizeLaplace);
-
-    for (size_t i = 0; i < sizeLaplace; ++i)
-      scalarLocation[i] = static_cast<int>(i);
   }
 
   void initialize();
-  void iterate();
+  void solve();
   void saveMesh(std::string path);
 
   TetrahedralMesh &mesh;
@@ -55,10 +58,7 @@ public:
   Eigen::VectorX<double> spannedX;
   std::vector<double> fixedValues;
 
-  // negative means fixedValues,
-  // positive means x (or spannedX)
-  std::vector<int> scalarLocation;
-  std::array<size_t, NB_CUBE_CORNER> cornerIds;
+  std::vector<PerDimNormals> nodeToAxisConstraints;
 };
 
 #endif

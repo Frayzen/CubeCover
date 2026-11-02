@@ -1,4 +1,5 @@
 #include "shape_functions.hpp"
+#include "constants.hpp"
 #include <Eigen/Core>
 #include <Eigen/Eigen>
 
@@ -53,8 +54,9 @@ DiffTetShapeFunctions computeDiffShapeFunctions(TetrahedralMesh &mesh,
   return res;
 }
 
-Eigen::Matrix3d computeHexaJacobian(const std::array<Vertex, 8> &nodes,
-                                    const Vertex &refPoint) {
+Eigen::Matrix3d
+computeHexaJacobian(const std::array<Vertex, NB_NODE_PER_HEX> &nodes,
+                    const Vertex &refPoint) {
   const double xi = refPoint.x();
   const double eta = refPoint.y();
   const double zeta = refPoint.z();

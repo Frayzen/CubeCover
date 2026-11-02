@@ -1,15 +1,15 @@
 #ifndef SIGNED_AXIS_HPP
 #define SIGNED_AXIS_HPP
 
+#include "constants.hpp"
 #include "vertex.hpp"
 #include <cmath>
-#include <cstddef>
 #include <stdexcept>
 
-using Axis = size_t;
-enum SignedAxis { POSITIVE, NEGATIVE, ZERO, UNDEFINED };
+using Axis = int;
+enum IntegerSign { POSITIVE, NEGATIVE, ZERO, UNDEFINED };
 
-inline int getSignedAxisValue(SignedAxis &a) {
+inline int getSignedAxisValue(IntegerSign &a) {
   switch (a) {
   case POSITIVE:
     return 1;
@@ -18,12 +18,12 @@ inline int getSignedAxisValue(SignedAxis &a) {
   case ZERO:
     return 0;
   case UNDEFINED:
-    return static_cast<int>(NAN);
+    return static_cast<int>(INT_NAN);
   }
   throw std::invalid_argument("Invalid signed axis");
 }
 
-inline Vertex getSignedAxisVertex(SignedAxis &sa, Axis a) {
+inline Vertex getSignedAxisVertex(IntegerSign &sa, Axis a) {
   Vertex v = Vertex::Zero();
   v[a] = getSignedAxisValue(sa);
   return v;

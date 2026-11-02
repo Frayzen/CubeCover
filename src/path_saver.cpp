@@ -33,8 +33,6 @@ void savePaths(std::string filename,
 
   // Insert paths as polyline cells.
   for (const auto &[nodes, axis] : paths) {
-    if (nodes.size() < 3)
-      throw std::runtime_error("A path must contain at least 3 nodes.");
 
     std::vector<vtkIdType> ids;
     ids.reserve(nodes.size());
