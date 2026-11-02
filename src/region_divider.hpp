@@ -56,6 +56,7 @@ private:
   EdgeGraph &edgeGraph;
   TetrahedralMesh &mesh;
   size_t nbRegion;
+  size_t nbLoop;
   ManyToOne<NodeId, RegionId> regions;
   std::vector<PerDimNormals> regionToNormals;
   AxisLoopZones loopZones[DIMENSION];
@@ -86,6 +87,11 @@ public:
   std::vector<NodeId> getCandidates(RegionId regionId);
 
   void saveMesh(std::string filename);
+
+  double measureQuality();
+  double measureCompactness();
+  double measureFidelity();
+
   friend AxisLoopZones;
 };
 

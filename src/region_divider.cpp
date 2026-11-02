@@ -11,7 +11,7 @@
 #include <set>
 #include <string>
 RegionDivider::RegionDivider(EdgeGraph &g)
-    : edgeGraph(g), mesh(g.mesh), nbRegion(1), regions() {
+    : edgeGraph(g), mesh(g.mesh), nbRegion(1), nbLoop(0), regions() {
   for (size_t i = 0; i < g.mesh.nbBoundaryNode; i++)
     regions.set(i, 0);
   for (Axis d = 0; d < DIMENSION; d++)
@@ -122,6 +122,7 @@ RegionId RegionDivider::fillConnectedFaces(NodeId startingEdgeId,
 
 void RegionDivider::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
   paths.push_back(std::make_pair(edgeIds, axis));
+  nbLoop++;
 
   Edge &firstEdge = mesh.edges[edgeIds[0]];
   RegionId oldRegion = regions[firstEdge[0]];
@@ -345,6 +346,37 @@ std::vector<Path> RegionDivider::computePaths(std::vector<NodeId> corners) {
   return paths;
 }
 
+double RegionDivider::measureQuality() {
+  std::vector<NodeId> corners = computeCorners();
+  std::vector<Path> paths = computePaths(corners);
+  std::vector<PerDimNormals> colorization = colorizeMesh(paths);
+
+  for (FaceId faceId = 0; faceId < mesh.nbBoundaryFace; faceId++) {
+    Face &face = mesh.faces[faceId];
+    size_t counts[DIMENSION] = {};
+    for (NodeId nodeId : face) {
+      for (Axis d = 0; d < DIMENSION; d++) {
+        if (colorization[nodeId][d] != ZERO)
+          counts[d]++;
+      }
+    }
+    Axis bestAxis = 0;
+    for (Axis axis = 1; axis < DIMENSION; axis++) {
+      if (counts[axis] > counts[bestAxis])
+        bestAxis = axis;
+    }
+
+    Vertex normal = face.computeNormal(mesh);
+    IntegerSign sign = colorization[face[0]][bestAxis];
+    sum += normal.dot(getSignedAxisVertex(sign, max));
+    if ()
+  }
+}
+double RegionDivider::measureCompactness() {
+  return static_cast<double>(nbLoop);
+}
+double RegionDivider::measureFidelity() {}
+
 void RegionDivider::saveMesh(std::string filename) {
   std::vector<NodeId> corners = computeCorners();
   std::vector<Path> paths = computePaths(corners);
@@ -352,16 +384,29 @@ void RegionDivider::saveMesh(std::string filename) {
   std::vector<int> colorSignX(mesh.vertices.size());
   std::vector<int> colorSignY(mesh.vertices.size());
   std::vector<int> colorSignZ(mesh.vertices.size());
-  std::vector<int> axis(mesh.vertices.size(), 0);
+
   for (NodeId i = 0; i < mesh.nbBoundaryNode; i++) {
     colorSignX[i] = getIntegerSignValue(colorization[i][0]);
     colorSignY[i] = getIntegerSignValue(colorization[i][1]);
     colorSignZ[i] = getIntegerSignValue(colorization[i][2]);
+  }
 
-    for (size_t d = 0; d < DIMENSION; d++) {
-      if (colorization[i][d] != ZERO)
-        axis[i] = d;
+  std::vector<int> axis(mesh.nbBoundaryFace, 0);
+  for (FaceId faceId = 0; faceId < mesh.nbBoundaryFace; faceId++) {
+    Face &face = mesh.faces[faceId];
+    size_t counts[DIMENSION] = {};
+    for (NodeId nodeId : face) {
+      for (Axis d = 0; d < DIMENSION; d++) {
+        if (colorization[nodeId][d] != ZERO)
+          counts[d]++;
+      }
     }
+    Axis max = 0;
+    for (Axis a = 1; a < DIMENSION; a++) {
+      if (counts[a] > counts[max])
+        max = a;
+    }
+    axis[faceId] = max;
   }
 
   savePaths("primary_paths.vtu", paths, mesh.vertices);
@@ -408,11 +453,13 @@ void RegionDivider::saveMesh(std::string filename) {
   saver.addField<ElementType::NodeType>("ySign", ySign);
   saver.addField<ElementType::NodeType>("zSign", zSign);
 
-  saver.addField<ElementType::NodeType>("axis", axis);
-
   saver.addField<ElementType::NodeType>("colorSignX", colorSignX);
   saver.addField<ElementType::NodeType>("colorSignY", colorSignY);
   saver.addField<ElementType::NodeType>("colorSignZ", colorSignZ);
+
+  saver.addField<ElementType::FaceType>("axis", axis);
+
   saver.saveMesh();
   saver.saveEdges();
+  saver.saveFaces();
 }
