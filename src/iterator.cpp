@@ -1,6 +1,7 @@
 
 #include "iterator.hpp"
 #include "constants.hpp"
+#include "mesh_loader.hpp"
 #include "mesh_saver.hpp"
 #include "shape_functions.hpp"
 #include "signed_axis.hpp"
@@ -144,13 +145,6 @@ CubeCoverIterator::getTetrahedraVertices(size_t tetId) {
 }
 
 void CubeCoverIterator::saveMesh(std::string path) {
-  std::vector<Vertex> vertices;
-  Vertex val;
-  for (size_t i = 0; i < mesh.vertices.size(); i++) {
-    size_t base = DIMENSION * i;
-    val << x[base], x[base + 1], x[base + 2];
-    vertices.push_back(val);
-  }
   std::vector<Eigen::Vector3d> frameX(mesh.tets.size());
   std::vector<Eigen::Vector3d> frameY(mesh.tets.size());
   std::vector<Eigen::Vector3d> frameZ(mesh.tets.size());
@@ -174,8 +168,7 @@ void CubeCoverIterator::saveMesh(std::string path) {
     frameZ[tetId] = frames[tetId].col(2);
   }
 
-  TetrahedralMesh newMesh(mesh);
-  newMesh.vertices = vertices;
+  TetrahedralMesh newMesh = buildMesh();
   MeshSaver saver(newMesh, path);
   saver.addField<ElementType::CellType>("frameX", frameX);
   saver.addField<ElementType::CellType>("frameY", frameY);
@@ -186,4 +179,19 @@ void CubeCoverIterator::saveMesh(std::string path) {
   saver.addField<ElementType::NodeType>("constraintZ", constraints[2]);
 
   saver.saveMesh();
+}
+
+TetrahedralMesh CubeCoverIterator::buildMesh() {
+
+  std::vector<Vertex> vertices;
+  Vertex val;
+  for (size_t i = 0; i < mesh.vertices.size(); i++) {
+    size_t base = DIMENSION * i;
+    val << x[base], x[base + 1], x[base + 2];
+    vertices.push_back(val);
+  }
+
+  TetrahedralMesh newMesh(mesh);
+  newMesh.vertices = vertices;
+  return newMesh;
 }

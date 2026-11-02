@@ -3,7 +3,7 @@
 #include "graph.hpp"
 #include "iterator.hpp"
 #include "mesh_loader.hpp"
-#include "mesh_saver.hpp"
+#include "morph.hpp"
 #include "path_saver.hpp"
 #include "region_divider.hpp"
 #include "shape_functions.hpp"
@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <vtkXMLUnstructuredGridWriter.h>
 
 struct BBox {
   Vertex max;
@@ -169,6 +170,9 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
   system.saveMesh("polycube.vtu");
+  TetrahedralMesh target = system.buildMesh();
+
+  saveMorphAnimation(mesh, target, "morphing");
 
   // std::string filename = "output.vtu";
   // system.saveMesh(filename);

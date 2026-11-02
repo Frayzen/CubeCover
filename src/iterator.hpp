@@ -59,6 +59,8 @@ public:
   std::vector<double> fixedValues;
 
   std::vector<PerDimNormals> nodeToAxisConstraints;
+
+  TetrahedralMesh buildMesh();
 };
 
 #endif
