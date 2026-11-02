@@ -109,13 +109,16 @@ int main(int argc, char *argv[]) {
   std::vector<Eigen::Matrix3d> frames(mesh.tets.size());
 
   std::array<Vertex, NB_NODE_PER_HEX> cornerVertices;
+  std::array<NodeId, NB_NODE_PER_HEX> cornerIds;
 
   for (size_t i = 0; i < NB_NODE_PER_HEX; i++) {
+    PerDimNormals target = cornerNormalsOrder[i];
     for (size_t j = 0; j < NB_NODE_PER_HEX; j++) {
       RegionId regionId = regionGraph.getNodeRegion(corners[j]);
       PerDimNormals normals = regionGraph.getRegionNormals(regionId);
-      if (normals == cornerNormalsOrder[i]) {
+      if (normals == target) {
         cornerVertices[i] = mesh.vertices[corners[j]];
+        cornerIds[i] = corners[j];
         break;
       }
     }
@@ -123,12 +126,9 @@ int main(int argc, char *argv[]) {
 
   for (size_t t = 0; t < mesh.tets.size(); t++) {
     auto &tet = mesh.tets[t];
-    // TODO: investigate order given to jacobian to minimize the rotation
-    // then we can apply rotation
     Eigen::Matrix3d jacobian =
         computeHexaJacobian(cornerVertices, tet.getBarycenter(mesh.vertices));
     frames[t] = jacobian.inverse();
-    // frames[t] = Eigen::Matrix3d::Identity();
   }
   // for (Face &f : mesh.faces) {
   //   if (f.adjacentCells[1] != UNDEFINED_ELEMENT)
@@ -172,5 +172,5 @@ int main(int argc, char *argv[]) {
   // std::string filename = "output.vtu";
   // system.saveMesh(filename);
 
-  // return EXIT_SUCCESS;
+  return EXIT_SUCCESS;
 }

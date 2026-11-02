@@ -37,7 +37,7 @@ void CubeCoverIterator::fillLaplaceTop() {
   }
 }
 
-void CubeCoverIterator::fillCornerConstraints() {
+void CubeCoverIterator::fillConstraints() {
   size_t offset = sizeLaplace;
   size_t constraintId = 0;
 
@@ -60,7 +60,7 @@ void CubeCoverIterator::fillCornerConstraints() {
 void CubeCoverIterator::initialize() {
   std::cout << "Initializing...\n";
   fillLaplaceTop();
-  fillCornerConstraints();
+  fillConstraints();
   A.makeCompressed();
 }
 void CubeCoverIterator::solve() {

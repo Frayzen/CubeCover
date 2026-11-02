@@ -12,7 +12,7 @@ private:
 
   void fillLaplaceTop();
   void debugSolvedGradients();
-  void fillCornerConstraints();
+  void fillConstraints();
   Vertex getVertex(size_t tetId, size_t localNodeId);
   std::array<Vertex, NB_NODE_PER_TET> getTetrahedraVertices(size_t tetId);
 
