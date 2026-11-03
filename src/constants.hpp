@@ -18,4 +18,6 @@ const ssize_t UNDEFINED_ELEMENT = -1;
 
 const int INT_NAN = std::numeric_limits<int>::max();
 
+const double MIN_QUALITY_INCREASE_PER_LOOP = 0.1;
+
 #endif

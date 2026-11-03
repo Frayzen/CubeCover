@@ -15,6 +15,21 @@
 #include <vtkUnstructuredGridReader.h>
 #include <vtkXMLUnstructuredGridReader.h>
 
+double Face::computeArea(TetrahedralMesh &m) {
+  const Vertex &p0 = m.vertices[nodes[0]];
+  const Vertex &p1 = m.vertices[nodes[1]];
+  const Vertex &p2 = m.vertices[nodes[2]];
+
+  const Vertex normal = (p1 - p0).cross(p2 - p0);
+
+  const double area = 0.5 * normal.norm();
+
+  if (area < 1e-12)
+    throw std::runtime_error("Degenerate face: cannot compute area");
+
+  return area;
+}
+
 Vertex Face::computeNormal(TetrahedralMesh &m) {
   const Vertex &p0 = m.vertices[nodes[0]];
   const Vertex &p1 = m.vertices[nodes[1]];

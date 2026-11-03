@@ -2,6 +2,7 @@
 #define AXIS_GRAPH_HPP
 
 #include "edge_graph.hpp"
+#include "graph.hpp"
 #include "many_to_one.hpp"
 #include "signed_axis.hpp"
 #include <stdexcept>
@@ -12,6 +13,7 @@ using EdgeId = size_t;
 using RegionId = size_t;
 using Path = std::pair<std::vector<EdgeId>, Axis>;
 using ZoneId = size_t;
+using LoopSegmentId = size_t;
 
 class RegionDivider;
 using LoopZone = std::vector<RegionId>;
@@ -59,6 +61,11 @@ private:
   size_t nbLoop;
   ManyToOne<NodeId, RegionId> regions;
   std::vector<PerDimNormals> regionToNormals;
+  std::vector<Axis> segmentToAxis;
+
+  std::vector<std::vector<LoopSegmentId>> regionToLoopSegment;
+  size_t nbLoopSegment;
+
   AxisLoopZones loopZones[DIMENSION];
 
   std::vector<std::array<bool, DIMENSION>> nodeNormals;
@@ -71,6 +78,7 @@ private:
                               Axis axis);
 
 public:
+  Graph gl;
   std::vector<Path> paths;
   RegionDivider(EdgeGraph &edgeGraph);
 

@@ -56,6 +56,7 @@ struct Face {
   size_t &operator[](size_t i) { return nodes[i]; }
 
   Vertex computeNormal(TetrahedralMesh &m);
+  double computeArea(TetrahedralMesh &m);
   auto begin() { return nodes.begin(); };
   auto end() { return nodes.end(); };
 };

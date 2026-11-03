@@ -6,12 +6,12 @@
 #include "signed_axis.hpp"
 #include <Eigen/Core>
 #include <cmath>
-#include <iostream>
 #include <queue>
 #include <set>
 #include <string>
 RegionDivider::RegionDivider(EdgeGraph &g)
-    : edgeGraph(g), mesh(g.mesh), nbRegion(1), nbLoop(0), regions() {
+    : edgeGraph(g), mesh(g.mesh), nbRegion(1), nbLoopSegment(0), nbLoop(0),
+      regions(), gl(0) {
   for (size_t i = 0; i < g.mesh.nbBoundaryNode; i++)
     regions.set(i, 0);
   for (Axis d = 0; d < DIMENSION; d++)
@@ -138,7 +138,19 @@ void RegionDivider::insertLoop(std::vector<size_t> edgeIds, size_t axis) {
     bool sameRegion = curOldRegion == regions[e[1]];
     if (!sameRegion)
       continue;
+
     RegionId newRegion = fillConnectedFaces(edgeId, edgeIds, axis);
+
+    LoopSegmentId curSegment = nbLoopSegment++;
+    segmentToAxis.push_back(axis);
+    regionToLoopSegment.push_back({curSegment});
+    gl.createNode();
+    for (LoopSegmentId regionSegments : regionToLoopSegment[curOldRegion]) {
+      gl.adjacency[curSegment].push_back(regionSegments);
+      gl.adjacency[regionSegments].push_back(curSegment);
+    }
+    regionToLoopSegment[curOldRegion].push_back(curSegment);
+
     loopZone.push_back(newRegion);
     for (Axis d = 0; d < DIMENSION; d++) {
       if (d == axis)
@@ -347,10 +359,19 @@ std::vector<Path> RegionDivider::computePaths(std::vector<NodeId> corners) {
 }
 
 double RegionDivider::measureQuality() {
+  return measureFidelity() -
+         MIN_QUALITY_INCREASE_PER_LOOP * measureCompactness();
+}
+double RegionDivider::measureCompactness() {
+  return static_cast<double>(nbLoop);
+}
+double RegionDivider::measureFidelity() {
   std::vector<NodeId> corners = computeCorners();
   std::vector<Path> paths = computePaths(corners);
   std::vector<PerDimNormals> colorization = colorizeMesh(paths);
 
+  double sum = 0;
+  double totalArea = 0;
   for (FaceId faceId = 0; faceId < mesh.nbBoundaryFace; faceId++) {
     Face &face = mesh.faces[faceId];
     size_t counts[DIMENSION] = {};
@@ -368,14 +389,12 @@ double RegionDivider::measureQuality() {
 
     Vertex normal = face.computeNormal(mesh);
     IntegerSign sign = colorization[face[0]][bestAxis];
-    sum += normal.dot(getSignedAxisVertex(sign, max));
-    if ()
+    double area = face.computeArea(mesh);
+    sum += area * normal.dot(getSignedAxisVertex(sign, bestAxis));
+    totalArea += area;
   }
+  return sum / totalArea;
 }
-double RegionDivider::measureCompactness() {
-  return static_cast<double>(nbLoop);
-}
-double RegionDivider::measureFidelity() {}
 
 void RegionDivider::saveMesh(std::string filename) {
   std::vector<NodeId> corners = computeCorners();

@@ -63,23 +63,33 @@ int main(int argc, char *argv[]) {
     }
   };
   addLoops();
-  addLoops();
   std::vector<Vertex> centerEdges(mesh.edges.size());
   for (size_t i = 0; i < mesh.edges.size(); i++)
     centerEdges[i] = mesh.edges[i].computeCenter(mesh);
 
+  regionDivider.saveMesh("tmp.vtu");
+  savePaths("paths.vtu", regionDivider.paths, centerEdges);
+
   double quality = regionDivider.measureQuality();
+  std::cout << "Quality is " << quality << std::endl;
 
   std::srand(1234);
   RegionDivider tmp = regionDivider;
   for (size_t i = 0; i < 1; i++) {
     NodeId startNode = std::rand() % mesh.nbBoundaryNode;
     Axis randomAxis = std::rand() % DIMENSION;
+    // Axis randomAxis = 0;
     std::vector<size_t> res = bellmanFordShortestPath(
         edgeGraph, weights[randomAxis], startNode, startNode);
     tmp.insertLoop(res, randomAxis);
   }
-  savePaths("paths.vtu", tmp.paths, centerEdges);
+  regionDivider.gl.exportDot("test.dot"); // TODO check that is the valid dot
+
+  quality = tmp.measureQuality();
+  std::cout << "Quality (tmp) is " << quality << std::endl;
+
+  tmp.saveMesh("tmp_regions.vtu");
+  savePaths("tmp_paths.vtu", tmp.paths, centerEdges);
 
   // savePaths("paths.vtu", regionDivider.paths, centerEdges);
 
