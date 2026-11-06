@@ -113,6 +113,7 @@ static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
 void VoxelMesh::slice(Axis axis, SliceId splittingSlice) {
   auto &sliceManager = sliceManagers[axis];
   std::vector<Region> createdRegions;
+  std::vector<Region> updatedRegions;
   for (Region &region : regions) {
     assert(region.startSlices[axis] != splittingSlice);
     if (region.containsSlice(axis, splittingSlice)) {
@@ -131,9 +132,14 @@ void VoxelMesh::slice(Axis axis, SliceId splittingSlice) {
       newRegion.voxels = newRegionIds;
       updateNormals(axis, region, newRegion);
       createdRegions.push_back(newRegion);
+      updatedRegions.push_back(region);
     }
   }
   regions.insert(regions.begin(), createdRegions.begin(), createdRegions.end());
+  for (Region &r : updatedRegions)
+    if (sliceManagers[axis].isNonConnected(axis, r)) {
+      std::cout << "ALERT: NON CONNECTED " << std::endl;
+    }
 }
 
 static void deduplicateVoxels(std::vector<Voxel> &voxels) {
