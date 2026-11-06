@@ -28,6 +28,7 @@ int main(int argc, char *argv[]) {
     mesh.slice(d, nbSlice / 5);
     mesh.slice(d, 4 * nbSlice / 5);
   }
+  mesh.test();
 
   VoxelMeshSaver saver(mesh);
 

@@ -30,6 +30,8 @@ struct VoxelMesh {
   std::array<SliceManager, DIMENSION> sliceManagers;
   std::vector<Region> regions;
   void buildMesh();
+  void test();
+  std::vector<Region> getConnectedRegions(RegionId rid);
 
   double voxelSize;
   Vertex origin;
