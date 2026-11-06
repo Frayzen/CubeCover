@@ -1,4 +1,3 @@
-
 #include "iterator.hpp"
 #include "constants.hpp"
 #include "mesh_saver.hpp"
