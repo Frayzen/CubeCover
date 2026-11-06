@@ -1,6 +1,7 @@
 #ifndef REGION_HPP
 #define REGION_HPP
 
+#include "signed_axis.hpp"
 #include "slice_manager.hpp"
 #include "vertex.hpp"
 #include <ostream>
@@ -15,6 +16,8 @@ struct Region {
   VoxelMesh *meshPtr;
   Eigen::Vector3<SliceId> startSlices;
   Eigen::Vector3<SliceId> endSlices;
+
+  std::array<IntegerSign, DIMENSION> signedNormals = {ZERO, ZERO, ZERO};
 
   std::vector<VoxelId> voxels;
 

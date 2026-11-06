@@ -39,7 +39,7 @@ struct VoxelMesh {
     buildMesh();
   }
 
-  void split(Axis axis, SliceId slice);
+  void slice(Axis axis, SliceId slice);
 
   friend class SliceManager;
 };

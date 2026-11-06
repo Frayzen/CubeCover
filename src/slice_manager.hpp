@@ -8,11 +8,13 @@
 using SliceId = size_t;
 
 class VoxelMesh;
+using SliceOffset = size_t;
 
 using Slice = std::vector<VoxelId>;
 class SliceManager {
   Axis axis;
   std::vector<Slice> slices;
+  std::vector<std::vector<SliceOffset>> sliceConnexParts;
 
 public:
   void build(VoxelMesh &mesh);

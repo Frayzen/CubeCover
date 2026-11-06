@@ -97,7 +97,20 @@ static std::vector<Voxel> triangleVoxels(const Vertex &A, const Vertex &B,
   return result;
 }
 
-void VoxelMesh::split(Axis axis, SliceId splittingSlice) {
+static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
+  IntegerSign oldNormal = oldRegion.signedNormals[axis];
+  if (oldNormal == UNDEFINED) {
+    oldRegion.signedNormals[axis] = NEGATIVE;
+    newRegion.signedNormals[axis] = POSITIVE;
+  } else if (oldNormal == ZERO)
+    newRegion.signedNormals[axis] = ZERO;
+  else if (oldNormal == NEGATIVE)
+    newRegion.signedNormals[axis] = ZERO;
+  else
+    oldRegion.signedNormals[axis] = ZERO;
+}
+
+void VoxelMesh::slice(Axis axis, SliceId splittingSlice) {
   auto &sliceManager = sliceManagers[axis];
   std::vector<Region> createdRegions;
   for (Region &region : regions) {
@@ -108,18 +121,30 @@ void VoxelMesh::split(Axis axis, SliceId splittingSlice) {
       region.endSlices[axis] = splittingSlice;
       std::vector<VoxelId> newRegionIds;
       std::vector<VoxelId> oldRegionIds;
-      for (VoxelId voxelId : region) {
-        if (voxels[voxelId][axis] < splittingSlice)
-          oldRegionIds.push_back(voxelId);
-        else
+      for (VoxelId voxelId : region) { // new region is above
+        if (voxels[voxelId][axis] > splittingSlice)
           newRegionIds.push_back(voxelId);
+        else
+          oldRegionIds.push_back(voxelId);
       }
       region.voxels = oldRegionIds;
       newRegion.voxels = newRegionIds;
+      updateNormals(axis, region, newRegion);
       createdRegions.push_back(newRegion);
     }
   }
   regions.insert(regions.begin(), createdRegions.begin(), createdRegions.end());
+}
+
+static void deduplicateVoxels(std::vector<Voxel> &voxels) {
+  std::sort(voxels.begin(), voxels.end(), [](const Voxel &a, const Voxel &b) {
+    if (a.x() != b.x())
+      return a.x() < b.x();
+    if (a.y() != b.y())
+      return a.y() < b.y();
+    return a.z() < b.z();
+  });
+  voxels.erase(std::unique(voxels.begin(), voxels.end()), voxels.end());
 }
 
 void VoxelMesh::buildMesh() {
@@ -137,29 +162,20 @@ void VoxelMesh::buildMesh() {
     throw std::runtime_error("Invalid voxel size.");
 
   for (size_t faceId = 0; faceId < tetMesh.nbBoundaryFace; faceId++) {
-
     const Face &face = tetMesh.faces[faceId];
-
     const Vertex &v1 = tetMesh.vertices[face[0]];
     const Vertex &v2 = tetMesh.vertices[face[1]];
     const Vertex &v3 = tetMesh.vertices[face[2]];
-
     auto found = triangleVoxels(v1, v2, v3, voxelSize, origin);
 
     voxels.insert(voxels.end(), found.begin(), found.end());
   }
-  // Deduplicate
-  std::sort(voxels.begin(), voxels.end(), [](const Voxel &a, const Voxel &b) {
-    if (a.x() != b.x())
-      return a.x() < b.x();
-    if (a.y() != b.y())
-      return a.y() < b.y();
-    return a.z() < b.z();
-  });
-  voxels.erase(std::unique(voxels.begin(), voxels.end()), voxels.end());
+  deduplicateVoxels(voxels);
   for (SliceManager &map : sliceManagers)
     map.build(*this);
+
   Region initialRegion(*this);
+  initialRegion.signedNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
   for (Axis d = 0; d < DIMENSION; d++) {
     initialRegion.startSlices[d] = 0;
     initialRegion.endSlices[d] = sliceManagers[d].nbSlice();
