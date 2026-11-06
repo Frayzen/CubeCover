@@ -7,6 +7,9 @@
 #include <algorithm>
 #include <cmath>
 
+#include <queue>
+#include <unsupported/Eigen/CXX11/Tensor>
+
 static bool triangleBoxIntersection(const Vertex &A, const Vertex &B,
                                     const Vertex &C, const Vertex &boxMin,
                                     const Vertex &boxMax) {
@@ -136,10 +139,6 @@ void VoxelMesh::slice(Axis axis, SliceId splittingSlice) {
     }
   }
   regions.insert(regions.begin(), createdRegions.begin(), createdRegions.end());
-  for (Region &r : updatedRegions)
-    if (sliceManagers[axis].isNonConnected(axis, r)) {
-      std::cout << "ALERT: NON CONNECTED " << std::endl;
-    }
 }
 
 static void deduplicateVoxels(std::vector<Voxel> &voxels) {
@@ -189,4 +188,110 @@ void VoxelMesh::buildMesh() {
   for (VoxelId id = 0; id < voxels.size(); id++)
     initialRegion.voxels.push_back(id);
   regions.push_back(initialRegion);
+}
+
+std::vector<Region> VoxelMesh::getConnectedRegions(RegionId rid) {
+  std::vector<Region> result;
+
+  const Region &region = regions[rid];
+
+  // Local tensor dimensions.
+  const size_t nx = region.endSlices.x() - region.startSlices.x() + 1;
+  const size_t ny = region.endSlices.y() - region.startSlices.y() + 1;
+  const size_t nz = region.endSlices.z() - region.startSlices.z() + 1;
+
+  // Tensor representing the voxels belonging to this region.
+  Eigen::Tensor<bool, 3> tensor(nx, ny, nz);
+  tensor.setConstant(false);
+
+  // Store the original voxel IDs.
+  Eigen::Tensor<VoxelId, 3> voxelIds(nx, ny, nz);
+
+  // Populate the tensor.
+  for (VoxelId voxelId : region.voxels) {
+    const auto &voxel = voxels[voxelId];
+
+    const size_t x = voxel.x() - region.startSlices.x();
+    const size_t y = voxel.y() - region.startSlices.y();
+    const size_t z = voxel.z() - region.startSlices.z();
+
+    tensor(x, y, z) = true;
+    voxelIds(x, y, z) = voxelId;
+  }
+
+  Eigen::Tensor<bool, 3> visited(nx, ny, nz);
+  visited.setConstant(false);
+
+  // 6-connectivity.
+  const std::array<Eigen::Vector3<int>, 6> neighbors = {
+      Eigen::Vector3<int>(1, 0, 0), Eigen::Vector3<int>(-1, 0, 0),
+      Eigen::Vector3<int>(0, 1, 0), Eigen::Vector3<int>(0, -1, 0),
+      Eigen::Vector3<int>(0, 0, 1), Eigen::Vector3<int>(0, 0, -1)};
+
+  using Coord = Eigen::Vector3<size_t>;
+
+  // Find connected components.
+  for (size_t x = 0; x < nx; ++x) {
+    for (size_t y = 0; y < ny; ++y) {
+      for (size_t z = 0; z < nz; ++z) {
+        if (!tensor(x, y, z) || visited(x, y, z))
+          continue;
+
+        // Create a new region for this component.
+        Region connectedRegion(*this);
+
+        connectedRegion.startSlices = region.startSlices;
+        connectedRegion.endSlices = region.endSlices;
+        connectedRegion.signedNormals = region.signedNormals;
+
+        std::queue<Coord> queue;
+
+        queue.push(Coord(x, y, z));
+        visited(x, y, z) = true;
+
+        while (!queue.empty()) {
+          const Coord current = queue.front();
+          queue.pop();
+
+          connectedRegion.voxels.push_back(
+              voxelIds(current.x(), current.y(), current.z()));
+
+          for (const auto &offset : neighbors) {
+            const int nx2 = static_cast<int>(current.x()) + offset.x();
+            const int ny2 = static_cast<int>(current.y()) + offset.y();
+            const int nz2 = static_cast<int>(current.z()) + offset.z();
+
+            if (nx2 < 0 || ny2 < 0 || nz2 < 0 || nx2 >= static_cast<int>(nx) ||
+                ny2 >= static_cast<int>(ny) || nz2 >= static_cast<int>(nz)) {
+              continue;
+            }
+
+            const size_t ux = static_cast<size_t>(nx2);
+            const size_t uy = static_cast<size_t>(ny2);
+            const size_t uz = static_cast<size_t>(nz2);
+
+            if (!tensor(ux, uy, uz) || visited(ux, uy, uz))
+              continue;
+
+            visited(ux, uy, uz) = true;
+            queue.push(Coord(ux, uy, uz));
+          }
+        }
+
+        result.push_back(std::move(connectedRegion));
+      }
+    }
+  }
+
+  return result;
+}
+
+void VoxelMesh::splitByConnectedRegions() {
+  std::vector<Region> res;
+  for (RegionId rid = 0; rid < regions.size(); rid++) {
+    auto ccs = getConnectedRegions(rid);
+    // assert(ccs.size() == 1);
+    res.insert(res.begin(), ccs.begin(), ccs.end());
+  }
+  regions = res;
 }
