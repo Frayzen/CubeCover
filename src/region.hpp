@@ -11,6 +11,8 @@ const RegionId NO_REGION = -1;
 
 class VoxelMesh;
 
+using RegionLayerId = size_t;
+
 class Region;
 struct Region {
   VoxelMesh *meshPtr;
@@ -21,8 +23,7 @@ struct Region {
 
   std::vector<VoxelId> voxels;
 
-  // TODO: might be useful later on
-  // std::array<RegionId, DIMENSION> nextRegion;
+  std::array<RegionLayerId, DIMENSION> layerIds;
 
   Region(VoxelMesh &mesh) : meshPtr(&mesh) {}
 

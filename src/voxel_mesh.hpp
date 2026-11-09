@@ -1,6 +1,7 @@
 #ifndef VOXEL_MESH_HPP
 #define VOXEL_MESH_HPP
 
+#include "graph.hpp"
 #include "mesh_loader.hpp"
 #include "region.hpp"
 #include "signed_axis.hpp"
@@ -9,6 +10,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Eigen>
 #include <cmath>
+#include <unsupported/Eigen/CXX11/Tensor>
 #include <vector>
 
 struct BBox {
@@ -24,11 +26,23 @@ struct BBox {
 };
 
 struct VoxelMesh {
+private:
+  VoxelId findCorner(Region &r);
+  std::vector<VoxelId>
+  findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap, VoxelId start,
+                   VoxelId end);
+  Graph voxelGraph;
+
+public:
   TetrahedralMesh &tetMesh;
   BBox bbox;
 
   std::array<SliceManager, DIMENSION> sliceManagers;
   std::vector<Region> regions;
+
+  // A node here is a LayerId
+  std::array<Graph, DIMENSION> regionGraphs;
+
   void buildMesh();
   void splitByConnectedRegions();
   std::vector<Region> getConnectedRegions(RegionId rid);
@@ -37,11 +51,14 @@ struct VoxelMesh {
   Vertex origin;
   std::vector<Voxel> voxels;
   VoxelMesh(TetrahedralMesh &tetMesh)
-      : tetMesh(tetMesh), sliceManagers({0, 1, 2}) {
+      : tetMesh(tetMesh), sliceManagers({0, 1, 2}), regionGraphs({1, 1, 1}),
+        voxelGraph(0) {
     buildMesh();
   }
 
-  void slice(Axis axis, SliceId slice);
+  void cut(Axis axis, SliceId slice);
+  std::vector<VoxelId> findCorners();
+  std::vector<std::vector<VoxelId>> findPaths();
 
   friend class SliceManager;
 };
