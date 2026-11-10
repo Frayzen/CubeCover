@@ -58,7 +58,8 @@ public:
   std::vector<Voxel> findCorners();
   std::vector<std::vector<Voxel>> findPaths();
 
-  void triangleVoxels(const Vertex &A, const Vertex &B, const Vertex &C);
+  void tetrahedraVoxels(const Vertex &A, const Vertex &B, const Vertex &C,
+                        const Vertex &D);
 
   VoxelId getId(const Voxel &v);
   Voxel getVoxel(VoxelId id) const;

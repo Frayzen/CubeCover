@@ -18,10 +18,6 @@
 
 static const VoxelId INVALID_VOXEL_ID = std::numeric_limits<VoxelId>::max();
 
-// -----------------------------------------------------------------------------
-// Voxel coordinate helpers
-// -----------------------------------------------------------------------------
-
 static Voxel getDimensions(const Eigen::Tensor<VoxelId, DIMENSION> &voxels) {
   return Voxel(static_cast<int>(voxels.dimension(0)),
                static_cast<int>(voxels.dimension(1)),
@@ -32,83 +28,102 @@ VoxelId VoxelMesh::getId(const Voxel &v) { return voxels(v.x(), v.y(), v.z()); }
 
 Voxel VoxelMesh::getVoxel(VoxelId id) const { return idToVoxel[id]; }
 
-// -----------------------------------------------------------------------------
-// Triangle / voxel intersection
-// -----------------------------------------------------------------------------
+static bool tetrahedronBoxIntersection(const Vertex &A, const Vertex &B,
+                                       const Vertex &C, const Vertex &D,
+                                       const Vertex &boxMin,
+                                       const Vertex &boxMax) {
 
-static bool triangleBoxIntersection(const Vertex &A, const Vertex &B,
-                                    const Vertex &C, const Vertex &boxMin,
-                                    const Vertex &boxMax) {
-  const Vertex center = (boxMin + boxMax) * 0.5;
-  const Vertex halfSize = (boxMax - boxMin) * 0.5;
+  // Box center and half-size
+  const Vertex boxCenter = (boxMin + boxMax) * 0.5;
+  const Vertex boxHalfSize = (boxMax - boxMin) * 0.5;
 
-  const Vertex v0 = A - center;
-  const Vertex v1 = B - center;
-  const Vertex v2 = C - center;
+  // Translate tetrahedron vertices relative to box center
+  const Vertex v[4] = {A - boxCenter, B - boxCenter, C - boxCenter,
+                       D - boxCenter};
 
-  const Vertex edges[3] = {v1 - v0, v2 - v1, v0 - v2};
+  // Tetrahedron edges
+  const int edges[6][2] = {{0, 1}, {0, 2}, {0, 3}, {1, 2}, {1, 3}, {2, 3}};
 
-  const Vertex boxAxes[3] = {Vertex::UnitX(), Vertex::UnitY(), Vertex::UnitZ()};
+  constexpr double EPSILON = 1e-12;
 
+  // Test a separating axis
   auto separated = [&](const Vertex &axis) -> bool {
-    if (axis.squaredNorm() < 1e-24)
+    if (axis.squaredNorm() < EPSILON)
       return false;
 
-    const double p0 = v0.dot(axis);
-    const double p1 = v1.dot(axis);
-    const double p2 = v2.dot(axis);
+    // Project tetrahedron onto axis
+    double minProj = v[0].dot(axis);
+    double maxProj = minProj;
 
-    const double triMin = std::min({p0, p1, p2});
-    const double triMax = std::max({p0, p1, p2});
+    for (int i = 1; i < 4; ++i) {
+      const double p = v[i].dot(axis);
+      minProj = std::min(minProj, p);
+      maxProj = std::max(maxProj, p);
+    }
 
-    const double radius = halfSize.dot(axis.cwiseAbs());
+    // Project box onto axis
+    const double radius = boxHalfSize.x() * std::abs(axis.x()) +
+                          boxHalfSize.y() * std::abs(axis.y()) +
+                          boxHalfSize.z() * std::abs(axis.z());
 
-    return triMin > radius || triMax < -radius;
+    // No intersection if projections do not overlap
+    return minProj > radius || maxProj < -radius;
   };
 
-  // Box coordinate axes.
-  for (const Vertex &axis : boxAxes) {
+  // 1. Box face normals (X, Y, Z)
+  if (separated(Vertex::UnitX()) || separated(Vertex::UnitY()) ||
+      separated(Vertex::UnitZ()))
+    return false;
+
+  // 2. Tetrahedron face normals
+  const Vertex faceNormals[4] = {
+      (v[1] - v[0]).cross(v[2] - v[0]), (v[1] - v[0]).cross(v[3] - v[0]),
+      (v[2] - v[0]).cross(v[3] - v[0]), (v[2] - v[1]).cross(v[3] - v[1])};
+
+  for (const Vertex &axis : faceNormals) {
     if (separated(axis))
       return false;
   }
 
-  // Triangle normal.
-  const Vertex normal = edges[0].cross(edges[1]);
+  // 3. Cross products between tetrahedron edges
+  // and box coordinate axes
+  const Vertex boxAxes[3] = {Vertex::UnitX(), Vertex::UnitY(), Vertex::UnitZ()};
 
-  if (separated(normal))
-    return false;
+  for (const auto &edge : edges) {
+    const Vertex e = v[edge[1]] - v[edge[0]];
 
-  // Cross products of triangle edges and box axes.
-  for (const Vertex &edge : edges) {
     for (const Vertex &axis : boxAxes) {
-      if (separated(edge.cross(axis)))
+      const Vertex crossAxis = e.cross(axis);
+
+      if (separated(crossAxis))
         return false;
     }
   }
 
+  // No separating axis found: intersection exists
   return true;
 }
 
-// -----------------------------------------------------------------------------
-// Voxelize triangle directly into occupancy tensor
-// -----------------------------------------------------------------------------
-
-void VoxelMesh::triangleVoxels(const Vertex &A, const Vertex &B,
-                               const Vertex &C) {
+void VoxelMesh::tetrahedraVoxels(const Vertex &A, const Vertex &B,
+                                 const Vertex &C, const Vertex &D) {
   if (voxelSize <= 0.0)
     throw std::invalid_argument("voxelSize must be positive");
 
-  const Vertex triMin = A.cwiseMin(B).cwiseMin(C);
-  const Vertex triMax = A.cwiseMax(B).cwiseMax(C);
+  // Tetrahedron bounding box
+  const Vertex tetMin = A.cwiseMin(B).cwiseMin(C).cwiseMin(D);
 
+  const Vertex tetMax = A.cwiseMax(B).cwiseMax(C).cwiseMax(D);
+
+  // Convert bounding box to grid coordinates
   const Voxel gridMin =
-      ((triMin - origin) / voxelSize).array().floor().cast<int>();
+      ((tetMin - origin) / voxelSize).array().floor().cast<int>();
 
   const Voxel gridMax =
-      ((triMax - origin) / voxelSize).array().floor().cast<int>();
+      ((tetMax - origin) / voxelSize).array().floor().cast<int>();
 
   const Voxel dimensions = getDimensions(voxels);
 
+  // Iterate over candidate voxels
   for (int i = std::max(0, gridMin.x());
        i <= std::min(dimensions.x() - 1, gridMax.x()); ++i) {
 
@@ -117,14 +132,17 @@ void VoxelMesh::triangleVoxels(const Vertex &A, const Vertex &B,
 
       for (int k = std::max(0, gridMin.z());
            k <= std::min(dimensions.z() - 1, gridMax.z()); ++k) {
+
         if (voxels(i, j, k) != NO_VOXEL)
           continue;
 
+        // Voxel bounding box
         const Vertex boxMin = origin + voxelSize * Vertex(i, j, k);
 
         const Vertex boxMax = boxMin + Vertex::Constant(voxelSize);
 
-        if (triangleBoxIntersection(A, B, C, boxMin, boxMax)) {
+        // Tetrahedron-box intersection test
+        if (tetrahedronBoxIntersection(A, B, C, D, boxMin, boxMax)) {
           voxels(i, j, k) = nbVoxel++;
           idToVoxel.push_back(Voxel(i, j, k));
         }
@@ -132,10 +150,6 @@ void VoxelMesh::triangleVoxels(const Vertex &A, const Vertex &B,
     }
   }
 }
-
-// -----------------------------------------------------------------------------
-// Region normals
-// -----------------------------------------------------------------------------
 
 static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
   IntegerSign oldNormal = oldRegion.signedNormals[axis];
@@ -151,10 +165,6 @@ static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
     oldRegion.signedNormals[axis] = ZERO;
   }
 }
-
-// -----------------------------------------------------------------------------
-// Cut region
-// -----------------------------------------------------------------------------
 
 bool VoxelMesh::cut(Axis axis, SliceId splittingSlice) {
   size_t nbRegion = regions.size();
@@ -194,10 +204,6 @@ bool VoxelMesh::cut(Axis axis, SliceId splittingSlice) {
   return true;
 }
 
-// -----------------------------------------------------------------------------
-// Build voxel mesh
-// -----------------------------------------------------------------------------
-
 void VoxelMesh::buildMesh() {
 
   for (const Vertex &v : tetMesh.vertices)
@@ -220,11 +226,12 @@ void VoxelMesh::buildMesh() {
 
   nbVoxel = 0;
   idToVoxel.clear();
-  for (const Face &face : tetMesh.faces) {
-    const Vertex &v1 = tetMesh.vertices[face[0]];
-    const Vertex &v2 = tetMesh.vertices[face[1]];
-    const Vertex &v3 = tetMesh.vertices[face[2]];
-    triangleVoxels(v1, v2, v3);
+  for (const Tetrahedron &tet : tetMesh.tets) {
+    const Vertex &v1 = tetMesh.vertices[tet[0]];
+    const Vertex &v2 = tetMesh.vertices[tet[1]];
+    const Vertex &v3 = tetMesh.vertices[tet[2]];
+    const Vertex &v4 = tetMesh.vertices[tet[3]];
+    tetrahedraVoxels(v1, v2, v3, v4);
   }
 
   Region initialRegion(*this);
@@ -239,10 +246,6 @@ void VoxelMesh::buildMesh() {
   }
   regions.push_back(initialRegion);
 }
-
-// -----------------------------------------------------------------------------
-// Find corner
-// -----------------------------------------------------------------------------
 
 Voxel VoxelMesh::findCorner(Region &r) {
 
@@ -283,10 +286,6 @@ Voxel VoxelMesh::findCorner(Region &r) {
 
   return minVoxel;
 }
-
-// -----------------------------------------------------------------------------
-// Shortest path
-// -----------------------------------------------------------------------------
 
 std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
   using QueueItem = std::pair<double, VoxelId>;
@@ -387,10 +386,6 @@ std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
   return path;
 }
 
-// -----------------------------------------------------------------------------
-// Find corners
-// -----------------------------------------------------------------------------
-
 std::vector<Voxel> VoxelMesh::findCorners() {
 
   std::vector<Voxel> res;
@@ -400,10 +395,6 @@ std::vector<Voxel> VoxelMesh::findCorners() {
 
   return res;
 }
-
-// -----------------------------------------------------------------------------
-// Find paths between adjacent regions
-// -----------------------------------------------------------------------------
 
 std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
 
