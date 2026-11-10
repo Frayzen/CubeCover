@@ -476,7 +476,7 @@ void RegionDivider::saveMesh(std::string filename) {
   saver.addField<ElementType::NodeType>("colorSignY", colorSignY);
   saver.addField<ElementType::NodeType>("colorSignZ", colorSignZ);
 
-  saver.addField<ElementType::FaceType>("axis", axis);
+  saver.addField<ElementType::FaceBoundaryType>("axis", axis);
 
   saver.saveMesh();
   saver.saveEdges();

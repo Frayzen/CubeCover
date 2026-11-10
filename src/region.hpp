@@ -6,9 +6,6 @@
 #include "vertex.hpp"
 #include <ostream>
 #include <sys/types.h>
-using RegionId = ssize_t;
-const RegionId NO_REGION = -1;
-
 class VoxelMesh;
 
 using RegionLayerId = size_t;

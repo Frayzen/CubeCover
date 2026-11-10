@@ -2,6 +2,7 @@
 #define VOXEL_MESH_HPP
 
 #include "graph.hpp"
+#include "ids.hpp"
 #include "mesh_loader.hpp"
 #include "region.hpp"
 #include "signed_axis.hpp"
@@ -30,7 +31,7 @@ private:
   VoxelId findCorner(Region &r);
   std::vector<VoxelId>
   findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap, VoxelId start,
-                   VoxelId end);
+                   VoxelId end, Axis a);
   Graph voxelGraph;
 
 public:
@@ -56,7 +57,9 @@ public:
     buildMesh();
   }
 
-  void cut(Axis axis, SliceId slice);
+  // return true if the cut happened correctly
+  // it could return false if a cut already happened on this slide for this axis
+  bool cut(Axis axis, SliceId slice);
   std::vector<VoxelId> findCorners();
   std::vector<std::vector<VoxelId>> findPaths();
 

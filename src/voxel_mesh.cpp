@@ -112,14 +112,16 @@ static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
     oldRegion.signedNormals[axis] = ZERO;
 }
 
-void VoxelMesh::cut(Axis axis, SliceId splittingSlice) {
+bool VoxelMesh::cut(Axis axis, SliceId splittingSlice) {
   auto &sliceManager = sliceManagers[axis];
   size_t nbRegion = regions.size();
   RegionLayerId newLayer = regionGraphs[axis].createNode();
   RegionLayerId splittedLayer = std::numeric_limits<RegionLayerId>::max();
   for (RegionId rId = 0; rId < nbRegion; rId++) {
     Region &region = regions[rId];
-    assert(region.startSlices[axis] != splittingSlice);
+    bool alreadySplittedHere = region.startSlices[axis] == splittingSlice;
+    if (alreadySplittedHere)
+      return false;
     if (region.containsSlice(axis, splittingSlice)) {
       if (splittedLayer == std::numeric_limits<RegionLayerId>::max())
         splittedLayer = region.layerIds[axis];
@@ -148,6 +150,7 @@ void VoxelMesh::cut(Axis axis, SliceId splittingSlice) {
   regionGraphs[axis].adjacency[newLayer] =
       regionGraphs[axis].adjacency[splittedLayer];
   regionGraphs[axis].adjacency[splittedLayer] = {newLayer};
+  return true;
 }
 
 static void deduplicateVoxels(std::vector<Voxel> &voxels) {
@@ -345,63 +348,88 @@ const VoxelId INVALID_VOXEL_ID = std::numeric_limits<VoxelId>::max();
 
 std::vector<VoxelId>
 VoxelMesh::findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap,
-                            VoxelId start, VoxelId end) {
-  std::queue<VoxelId> queue;
+                            VoxelId start, VoxelId end, Axis a) {
+  using QueueItem = std::pair<double, VoxelId>;
+
+  std::priority_queue<QueueItem, std::vector<QueueItem>,
+                      std::greater<QueueItem>>
+      queue;
+
+  std::unordered_map<VoxelId, double> distance;
   std::unordered_map<VoxelId, VoxelId> parent;
 
-  queue.push(start);
-  parent[start] = start;
+  const Vertex A = voxels[start].cast<double>();
+  const Vertex B = voxels[end].cast<double>();
+  const Vertex AB = B - A;
+
+  const double lengthSquared = AB.squaredNorm();
+
+  auto distanceToAB = [&](VoxelId id) {
+    Vertex P = voxels[id].cast<double>();
+    double t = std::clamp((P - A).dot(AB) / lengthSquared, 0.0, 1.0);
+    Vertex projection = A + t * AB;
+    return (P - projection).norm();
+  };
 
   const std::array<Voxel, 6> directions = {Voxel(1, 0, 0), Voxel(-1, 0, 0),
                                            Voxel(0, 1, 0), Voxel(0, -1, 0),
                                            Voxel(0, 0, 1), Voxel(0, 0, -1)};
 
-  bool found = false;
-
   Voxel dimensions =
       Eigen::Vector3<long>{voxelMap.dimension(0), voxelMap.dimension(1),
                            voxelMap.dimension(2)}
           .cast<int>();
+
+  distance[start] = 0.0;
+  parent[start] = start;
+  queue.push({0.0, start});
+
   while (!queue.empty()) {
-    VoxelId current = queue.front();
+    auto [currentDistance, current] = queue.top();
     queue.pop();
 
-    if (current == end) {
-      found = true;
+    if (currentDistance > distance[current])
+      continue;
+
+    if (current == end)
       break;
-    }
 
     const Voxel &v = voxels[current];
 
     for (const Voxel &dir : directions) {
       Voxel next = v + dir;
-      Voxel relative = next;
 
-      if ((relative.array() < 0).any() ||
-          (relative.array() >= dimensions.array()).any())
+      if ((next.array() < 0).any() ||
+          (next.array() >= dimensions.array()).any())
         continue;
 
-      VoxelId nextId = voxelMap(relative[0], relative[1], relative[2]);
+      VoxelId nextId = voxelMap(next[0], next[1], next[2]);
 
       if (nextId == INVALID_VOXEL_ID)
         continue;
 
-      if (parent.contains(nextId))
-        continue;
+      double cost = 1.0 + distanceToAB(nextId);
+      double newDistance = currentDistance + cost;
 
-      parent[nextId] = current;
-      queue.push(nextId);
+      if (!distance.contains(nextId) || newDistance < distance[nextId]) {
+
+        distance[nextId] = newDistance;
+        parent[nextId] = current;
+
+        queue.push({newDistance, nextId});
+      }
     }
   }
-  if (!found)
+
+  if (!distance.contains(end))
     throw std::runtime_error("No path found");
+
   std::vector<VoxelId> path;
 
   for (VoxelId v = end; v != start; v = parent[v])
     path.push_back(v);
 
   path.push_back(start);
-
   std::reverse(path.begin(), path.end());
 
   return path;
@@ -435,18 +463,22 @@ std::vector<std::vector<VoxelId>> VoxelMesh::findPaths() {
     Region &r = regions[rId];
     for (RegionId adjId = rId; adjId < nbRegion; adjId++) {
       Region &adj = regions[adjId];
+      Axis axis = 0;
       size_t commonLayers = 0;
       if (adjId == rId)
         continue;
       for (Axis d = 0; d < DIMENSION; d++) {
         if (adj.layerIds[d] == r.layerIds[d])
           commonLayers++;
+        else
+          axis = d;
       }
       assert(commonLayers < 3);
       bool isAdjacent = commonLayers == 2;
       if (!isAdjacent)
         continue;
-      res.push_back(findShortestPath(voxelMap, corners[rId], corners[adjId]));
+      res.push_back(
+          findShortestPath(voxelMap, corners[rId], corners[adjId], axis));
     }
   }
   return res;

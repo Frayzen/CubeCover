@@ -68,6 +68,15 @@ Vertex Tetrahedron::getBarycenter(std::vector<Vertex> &meshVertices) const {
   return res / static_cast<double>(NB_NODE_PER_TET);
 }
 
+Vertex Face::getBarycenter(std::vector<Vertex> &meshVertices) const {
+  Vertex res = Vertex::Zero();
+
+  for (size_t i = 0; i < NB_NODE_PER_TET; ++i)
+    res += meshVertices[nodes[i]];
+
+  return res / static_cast<double>(NB_NODE_PER_TET);
+};
+
 Vertex Edge::computeCenter(TetrahedralMesh &m) const {
   Vertex res = Vertex::Zero();
 

@@ -3,17 +3,12 @@
 
 #include "edge_graph.hpp"
 #include "graph.hpp"
+#include "ids.hpp"
 #include "many_to_one.hpp"
 #include "signed_axis.hpp"
 #include <stdexcept>
 
-using NodeId = size_t;
-using FaceId = size_t;
-using EdgeId = size_t;
-using RegionId = size_t;
 using Path = std::pair<std::vector<EdgeId>, Axis>;
-using ZoneId = size_t;
-using LoopSegmentId = size_t;
 
 class RegionDivider;
 using LoopZone = std::vector<RegionId>;

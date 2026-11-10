@@ -55,6 +55,7 @@ struct Face {
   const size_t &operator[](size_t i) const { return nodes[i]; }
   size_t &operator[](size_t i) { return nodes[i]; }
 
+  Vertex getBarycenter(std::vector<Vertex> &meshVertices) const;
   Vertex computeNormal(TetrahedralMesh &m);
   double computeArea(TetrahedralMesh &m);
   auto begin() { return nodes.begin(); };

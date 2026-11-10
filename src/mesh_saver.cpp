@@ -155,3 +155,31 @@ void MeshSaver::saveFaces() const {
     throw std::runtime_error("Failed to write VTK faces to " + facePath);
   }
 }
+
+void saveNodes(const std::vector<Vertex> &nodes, const std::string &filename) {
+
+  auto points = vtkSmartPointer<vtkPoints>::New();
+  points->SetNumberOfPoints(nodes.size());
+
+  auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
+
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    points->SetPoint(i, nodes[i][0], nodes[i][1], nodes[i][2]);
+  }
+
+  grid->SetPoints(points);
+
+  // Create one vertex cell per node.
+  for (vtkIdType i = 0; i < static_cast<vtkIdType>(nodes.size()); ++i) {
+    grid->InsertNextCell(VTK_VERTEX, 1, &i);
+  }
+
+  auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
+
+  writer->SetFileName(filename.c_str());
+  writer->SetInputData(grid);
+  writer->SetDataModeToBinary();
+
+  if (writer->Write() != 1)
+    throw std::runtime_error("Failed to write VTU file: " + filename);
+}

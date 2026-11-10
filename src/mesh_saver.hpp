@@ -22,7 +22,7 @@
 #include <vtkXMLPolyDataWriter.h>
 #include <vtkXMLUnstructuredGridWriter.h>
 
-enum class ElementType { NodeType, EdgeType, FaceType, CellType };
+enum class ElementType { NodeType, EdgeType, FaceBoundaryType, CellType };
 
 class MeshSaver {
 private:
@@ -118,7 +118,7 @@ public:
       attributes = edgeGrid->GetCellData();
       expectedSize = mesh.nbBoundaryEdge;
 
-    } else if constexpr (E == ElementType::FaceType) {
+    } else if constexpr (E == ElementType::FaceBoundaryType) {
 
       attributes = faceGrid->GetCellData();
       expectedSize = mesh.nbBoundaryFace;
@@ -131,7 +131,7 @@ public:
     } else {
 
       static_assert(E == ElementType::NodeType || E == ElementType::EdgeType ||
-                        E == ElementType::FaceType ||
+                        E == ElementType::FaceBoundaryType ||
                         E == ElementType::CellType,
                     "Unsupported element type");
     }
@@ -148,4 +148,7 @@ public:
   void saveEdges() const;
   void saveFaces() const;
 };
+
+void saveNodes(const std::vector<Vertex> &nodes, const std::string &filename);
+
 #endif
