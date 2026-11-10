@@ -1,6 +1,7 @@
 #ifndef VOXEL_MESH_SAVER_HPP
 #define VOXEL_MESH_SAVER_HPP
 
+#include "ids.hpp"
 #include "voxel_mesh.hpp"
 
 #include <stdexcept>
@@ -97,37 +98,54 @@ private:
 
     const double s = mesh.voxelSize;
 
-    for (const auto &voxel : mesh.voxels) {
+    const size_t nx = mesh.voxels.dimension(0);
+    const size_t ny = mesh.voxels.dimension(1);
+    const size_t nz = mesh.voxels.dimension(2);
 
-      const double x = voxel[0] * s;
-      const double y = voxel[1] * s;
-      const double z = voxel[2] * s;
+    // Point IDs indexed by grid vertex coordinates.
+    Eigen::Tensor<vtkIdType, 3> pointIds(nx + 1, ny + 1, nz + 1);
 
-      // VTK_HEXAHEDRON vertex ordering
+    pointIds.setConstant(-1);
 
-      points->InsertNextPoint(x, y, z);
-      points->InsertNextPoint(x + s, y, z);
-      points->InsertNextPoint(x + s, y + s, z);
-      points->InsertNextPoint(x, y + s, z);
+    // Create each grid point only once.
+    auto getPointId = [&](size_t x, size_t y, size_t z) -> vtkIdType {
+      vtkIdType &id = pointIds(x, y, z);
 
-      points->InsertNextPoint(x, y, z + s);
-      points->InsertNextPoint(x + s, y, z + s);
-      points->InsertNextPoint(x + s, y + s, z + s);
-      points->InsertNextPoint(x, y + s, z + s);
-    }
+      if (id == -1) {
+        const double px = mesh.origin.x() + x * s;
+        const double py = mesh.origin.y() + y * s;
+        const double pz = mesh.origin.z() + z * s;
 
-    grid->SetPoints(points);
-
-    for (vtkIdType i = 0; i < static_cast<vtkIdType>(mesh.voxels.size()); ++i) {
-
-      vtkIdType ids[8];
-
-      for (int j = 0; j < 8; ++j) {
-        ids[j] = 8 * i + j;
+        id = points->InsertNextPoint(px, py, pz);
       }
+
+      return id;
+    };
+
+    // Create hexahedra for occupied voxels.
+    for (VoxelId id = 0; id < mesh.nbVoxel; id++) {
+      Voxel v = mesh.getVoxel(id);
+      auto x = v.x();
+      auto y = v.y();
+      auto z = v.z();
+
+      if (mesh.voxels(x, y, z) == NO_VOXEL)
+        continue;
+
+      vtkIdType ids[8] = {getPointId(x, y, z),
+                          getPointId(x + 1, y, z),
+                          getPointId(x + 1, y + 1, z),
+                          getPointId(x, y + 1, z),
+
+                          getPointId(x, y, z + 1),
+                          getPointId(x + 1, y, z + 1),
+                          getPointId(x + 1, y + 1, z + 1),
+                          getPointId(x, y + 1, z + 1)};
 
       grid->InsertNextCell(VTK_HEXAHEDRON, 8, ids);
     }
+
+    grid->SetPoints(points);
   }
 
 public:
@@ -141,7 +159,7 @@ public:
   template <typename T>
   void addField(const std::string &name, const std::vector<T> &values) {
 
-    const size_t expectedSize = mesh.voxels.size();
+    const size_t expectedSize = mesh.nbVoxel;
 
     if (values.size() != expectedSize) {
       throw std::invalid_argument(

@@ -1,7 +1,7 @@
 #ifndef TRILATERATE_HPP
 #define TRILATERATE_HPP
 
-#include "vertex.hpp"
+#include "ids.hpp"
 
 // We project the oldTip to the newFace
 Vertex tipProject(const Vertex oldFace[3], const Vertex newFace[3],

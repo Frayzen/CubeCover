@@ -1,13 +1,40 @@
+
 #include "voxel_mesh.hpp"
 #include "constants.hpp"
 #include "signed_axis.hpp"
-#include "slice_manager.hpp"
-#include "vertex.hpp"
-#include <Eigen/Eigen>
-#include <algorithm>
-#include <cmath>
 
+#include <Eigen/Eigen>
+#include <unsupported/Eigen/CXX11/Tensor>
+
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cmath>
+#include <limits>
 #include <queue>
+#include <stdexcept>
+#include <unordered_map>
+#include <vector>
+
+static const VoxelId INVALID_VOXEL_ID = std::numeric_limits<VoxelId>::max();
+
+// -----------------------------------------------------------------------------
+// Voxel coordinate helpers
+// -----------------------------------------------------------------------------
+
+static Voxel getDimensions(const Eigen::Tensor<VoxelId, DIMENSION> &voxels) {
+  return Voxel(static_cast<int>(voxels.dimension(0)),
+               static_cast<int>(voxels.dimension(1)),
+               static_cast<int>(voxels.dimension(2)));
+}
+
+VoxelId VoxelMesh::getId(const Voxel &v) { return voxels(v.x(), v.y(), v.z()); }
+
+Voxel VoxelMesh::getVoxel(VoxelId id) const { return idToVoxel[id]; }
+
+// -----------------------------------------------------------------------------
+// Triangle / voxel intersection
+// -----------------------------------------------------------------------------
 
 static bool triangleBoxIntersection(const Vertex &A, const Vertex &B,
                                     const Vertex &C, const Vertex &boxMin,
@@ -15,7 +42,6 @@ static bool triangleBoxIntersection(const Vertex &A, const Vertex &B,
   const Vertex center = (boxMin + boxMax) * 0.5;
   const Vertex halfSize = (boxMax - boxMin) * 0.5;
 
-  // Translate triangle to box-centered coordinates.
   const Vertex v0 = A - center;
   const Vertex v1 = B - center;
   const Vertex v2 = C - center;
@@ -24,7 +50,6 @@ static bool triangleBoxIntersection(const Vertex &A, const Vertex &B,
 
   const Vertex boxAxes[3] = {Vertex::UnitX(), Vertex::UnitY(), Vertex::UnitZ()};
 
-  // Test an axis for separation.
   auto separated = [&](const Vertex &axis) -> bool {
     if (axis.squaredNorm() < 1e-24)
       return false;
@@ -41,19 +66,19 @@ static bool triangleBoxIntersection(const Vertex &A, const Vertex &B,
     return triMin > radius || triMax < -radius;
   };
 
-  // 1. Box coordinate axes.
+  // Box coordinate axes.
   for (const Vertex &axis : boxAxes) {
     if (separated(axis))
       return false;
   }
 
-  // 2. Triangle normal.
+  // Triangle normal.
   const Vertex normal = edges[0].cross(edges[1]);
 
   if (separated(normal))
     return false;
 
-  // 3. Cross products of triangle edges and box axes.
+  // Cross products of triangle edges and box axes.
   for (const Vertex &edge : edges) {
     for (const Vertex &axis : boxAxes) {
       if (separated(edge.cross(axis)))
@@ -64,105 +89,114 @@ static bool triangleBoxIntersection(const Vertex &A, const Vertex &B,
   return true;
 }
 
-static std::vector<Voxel> triangleVoxels(const Vertex &A, const Vertex &B,
-                                         const Vertex &C, double voxelSize,
-                                         const Vertex &origin) {
+// -----------------------------------------------------------------------------
+// Voxelize triangle directly into occupancy tensor
+// -----------------------------------------------------------------------------
+
+void VoxelMesh::triangleVoxels(const Vertex &A, const Vertex &B,
+                               const Vertex &C) {
   if (voxelSize <= 0.0)
     throw std::invalid_argument("voxelSize must be positive");
 
-  // Triangle bounding box.
   const Vertex triMin = A.cwiseMin(B).cwiseMin(C);
-
   const Vertex triMax = A.cwiseMax(B).cwiseMax(C);
 
-  // Convert to integer grid coordinates.
   const Voxel gridMin =
       ((triMin - origin) / voxelSize).array().floor().cast<int>();
 
   const Voxel gridMax =
       ((triMax - origin) / voxelSize).array().floor().cast<int>();
 
-  std::vector<Voxel> result;
+  const Voxel dimensions = getDimensions(voxels);
 
-  // Enumerate candidate voxels.
-  for (int i = gridMin.x(); i <= gridMax.x(); ++i) {
-    for (int j = gridMin.y(); j <= gridMax.y(); ++j) {
-      for (int k = gridMin.z(); k <= gridMax.z(); ++k) {
+  for (int i = std::max(0, gridMin.x());
+       i <= std::min(dimensions.x() - 1, gridMax.x()); ++i) {
+
+    for (int j = std::max(0, gridMin.y());
+         j <= std::min(dimensions.y() - 1, gridMax.y()); ++j) {
+
+      for (int k = std::max(0, gridMin.z());
+           k <= std::min(dimensions.z() - 1, gridMax.z()); ++k) {
+        if (voxels(i, j, k) != NO_VOXEL)
+          continue;
+
         const Vertex boxMin = origin + voxelSize * Vertex(i, j, k);
+
         const Vertex boxMax = boxMin + Vertex::Constant(voxelSize);
-        if (triangleBoxIntersection(A, B, C, boxMin, boxMax))
-          result.emplace_back(i, j, k);
+
+        if (triangleBoxIntersection(A, B, C, boxMin, boxMax)) {
+          voxels(i, j, k) = nbVoxel++;
+          idToVoxel.push_back(Voxel(i, j, k));
+        }
       }
     }
   }
-
-  return result;
 }
+
+// -----------------------------------------------------------------------------
+// Region normals
+// -----------------------------------------------------------------------------
 
 static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
   IntegerSign oldNormal = oldRegion.signedNormals[axis];
+
   if (oldNormal == UNDEFINED) {
     oldRegion.signedNormals[axis] = NEGATIVE;
     newRegion.signedNormals[axis] = POSITIVE;
-  } else if (oldNormal == ZERO)
+  } else if (oldNormal == ZERO) {
     newRegion.signedNormals[axis] = ZERO;
-  else if (oldNormal == NEGATIVE)
+  } else if (oldNormal == NEGATIVE) {
     newRegion.signedNormals[axis] = ZERO;
-  else
+  } else {
     oldRegion.signedNormals[axis] = ZERO;
+  }
 }
 
+// -----------------------------------------------------------------------------
+// Cut region
+// -----------------------------------------------------------------------------
+
 bool VoxelMesh::cut(Axis axis, SliceId splittingSlice) {
-  auto &sliceManager = sliceManagers[axis];
   size_t nbRegion = regions.size();
-  RegionLayerId newLayer = regionGraphs[axis].createNode();
-  RegionLayerId splittedLayer = std::numeric_limits<RegionLayerId>::max();
+  std::vector<RegionLayerId> newLayerIds(regionGraphs[axis].nbNode());
+  std::fill(newLayerIds.begin(), newLayerIds.end(), NO_LAYER);
   for (RegionId rId = 0; rId < nbRegion; rId++) {
     Region &region = regions[rId];
     bool alreadySplittedHere = region.startSlices[axis] == splittingSlice;
     if (alreadySplittedHere)
       return false;
     if (region.containsSlice(axis, splittingSlice)) {
-      if (splittedLayer == std::numeric_limits<RegionLayerId>::max())
-        splittedLayer = region.layerIds[axis];
-      else
-        assert(splittedLayer == region.layerIds[axis]);
+      // Create region
       Region newRegion(region);
-      newRegion.layerIds[axis] = newLayer;
       RegionId newRegionId = regions.size();
       newRegion.startSlices[axis] = splittingSlice;
       region.endSlices[axis] = splittingSlice;
-      std::vector<VoxelId> newVoxelIds;
-      std::vector<VoxelId> oldVoxelIds;
-      for (VoxelId voxelId : region) { // new region is > on the axis
-        if (voxels[voxelId][axis] > splittingSlice)
-          newVoxelIds.push_back(voxelId);
-        else
-          oldVoxelIds.push_back(voxelId);
-      }
-      region.voxels = oldVoxelIds;
-      newRegion.voxels = newVoxelIds;
       updateNormals(axis, region, newRegion);
+
+      // Layer handling
+      RegionLayerId regionLayer = region.layerIds[axis];
+      bool encounteredLayer = newLayerIds[regionLayer] != NO_LAYER;
+      if (!encounteredLayer) {
+        RegionLayerId newLayer = regionGraphs[axis].createNode();
+        newLayerIds[regionLayer] = newLayer;
+        regionGraphs[axis].adjacency[newLayer] =
+            regionGraphs[axis].adjacency[regionLayer];
+        regionGraphs[axis].adjacency[regionLayer] = {newLayer};
+      }
+      RegionLayerId newLayer = newLayerIds[regionLayer];
+      newRegion.layerIds[axis] = newLayer;
+
+      // KEEP AT THE END
       regions.push_back(newRegion);
     }
   }
-  assert(splittedLayer != std::numeric_limits<RegionLayerId>::max());
-  regionGraphs[axis].adjacency[newLayer] =
-      regionGraphs[axis].adjacency[splittedLayer];
-  regionGraphs[axis].adjacency[splittedLayer] = {newLayer};
+
   return true;
 }
 
-static void deduplicateVoxels(std::vector<Voxel> &voxels) {
-  std::sort(voxels.begin(), voxels.end(), [](const Voxel &a, const Voxel &b) {
-    if (a.x() != b.x())
-      return a.x() < b.x();
-    if (a.y() != b.y())
-      return a.y() < b.y();
-    return a.z() < b.z();
-  });
-  voxels.erase(std::unique(voxels.begin(), voxels.end()), voxels.end());
-}
+// -----------------------------------------------------------------------------
+// Build voxel mesh
+// -----------------------------------------------------------------------------
 
 void VoxelMesh::buildMesh() {
 
@@ -178,144 +212,46 @@ void VoxelMesh::buildMesh() {
   if (voxelSize <= 0.0)
     throw std::runtime_error("Invalid voxel size.");
 
-  for (size_t faceId = 0; faceId < tetMesh.nbBoundaryFace; faceId++) {
-    const Face &face = tetMesh.faces[faceId];
+  const Voxel dimensions = (diff / voxelSize).array().floor().cast<int>() + 1;
+
+  voxels.resize(dimensions.x(), dimensions.y(), dimensions.z());
+
+  voxels.setConstant(NO_VOXEL);
+
+  nbVoxel = 0;
+  idToVoxel.clear();
+  for (const Face &face : tetMesh.faces) {
     const Vertex &v1 = tetMesh.vertices[face[0]];
     const Vertex &v2 = tetMesh.vertices[face[1]];
     const Vertex &v3 = tetMesh.vertices[face[2]];
-    auto found = triangleVoxels(v1, v2, v3, voxelSize, origin);
-
-    voxels.insert(voxels.end(), found.begin(), found.end());
+    triangleVoxels(v1, v2, v3);
   }
-  deduplicateVoxels(voxels);
-  for (SliceManager &map : sliceManagers)
-    map.build(*this);
 
   Region initialRegion(*this);
+
   initialRegion.signedNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
+
   initialRegion.layerIds = {0, 0, 0};
+
   for (Axis d = 0; d < DIMENSION; d++) {
     initialRegion.startSlices[d] = 0;
-    initialRegion.endSlices[d] = sliceManagers[d].nbSlice();
+    initialRegion.endSlices[d] = dimensions[d];
   }
-  for (VoxelId id = 0; id < voxels.size(); id++)
-    initialRegion.voxels.push_back(id);
   regions.push_back(initialRegion);
 }
 
-std::vector<Region> VoxelMesh::getConnectedRegions(RegionId rid) {
-  std::vector<Region> result;
+// -----------------------------------------------------------------------------
+// Find corner
+// -----------------------------------------------------------------------------
 
-  const Region &region = regions[rid];
-
-  // Local tensor dimensions.
-  const size_t nx = region.endSlices.x() - region.startSlices.x() + 1;
-  const size_t ny = region.endSlices.y() - region.startSlices.y() + 1;
-  const size_t nz = region.endSlices.z() - region.startSlices.z() + 1;
-
-  // Tensor representing the voxels belonging to this region.
-  Eigen::Tensor<bool, 3> tensor(nx, ny, nz);
-  tensor.setConstant(false);
-
-  // Store the original voxel IDs.
-  Eigen::Tensor<VoxelId, 3> voxelIds(nx, ny, nz);
-
-  // Populate the tensor.
-  for (VoxelId voxelId : region.voxels) {
-    const auto &voxel = voxels[voxelId];
-
-    const size_t x = voxel.x() - region.startSlices.x();
-    const size_t y = voxel.y() - region.startSlices.y();
-    const size_t z = voxel.z() - region.startSlices.z();
-
-    tensor(x, y, z) = true;
-    voxelIds(x, y, z) = voxelId;
-  }
-
-  Eigen::Tensor<bool, 3> visited(nx, ny, nz);
-  visited.setConstant(false);
-
-  // 6-connectivity.
-  const std::array<Eigen::Vector3<int>, 6> neighbors = {
-      Eigen::Vector3<int>(1, 0, 0), Eigen::Vector3<int>(-1, 0, 0),
-      Eigen::Vector3<int>(0, 1, 0), Eigen::Vector3<int>(0, -1, 0),
-      Eigen::Vector3<int>(0, 0, 1), Eigen::Vector3<int>(0, 0, -1)};
-
-  using Coord = Eigen::Vector3<size_t>;
-
-  // Find connected components.
-  for (size_t x = 0; x < nx; ++x) {
-    for (size_t y = 0; y < ny; ++y) {
-      for (size_t z = 0; z < nz; ++z) {
-        if (!tensor(x, y, z) || visited(x, y, z))
-          continue;
-
-        // Create a new region for this component.
-        Region connectedRegion(*this);
-
-        connectedRegion.startSlices = region.startSlices;
-        connectedRegion.endSlices = region.endSlices;
-        connectedRegion.signedNormals = region.signedNormals;
-
-        std::queue<Coord> queue;
-
-        queue.push(Coord(x, y, z));
-        visited(x, y, z) = true;
-
-        while (!queue.empty()) {
-          const Coord current = queue.front();
-          queue.pop();
-
-          connectedRegion.voxels.push_back(
-              voxelIds(current.x(), current.y(), current.z()));
-
-          for (const auto &offset : neighbors) {
-            const int nx2 = static_cast<int>(current.x()) + offset.x();
-            const int ny2 = static_cast<int>(current.y()) + offset.y();
-            const int nz2 = static_cast<int>(current.z()) + offset.z();
-
-            if (nx2 < 0 || ny2 < 0 || nz2 < 0 || nx2 >= static_cast<int>(nx) ||
-                ny2 >= static_cast<int>(ny) || nz2 >= static_cast<int>(nz)) {
-              continue;
-            }
-
-            const size_t ux = static_cast<size_t>(nx2);
-            const size_t uy = static_cast<size_t>(ny2);
-            const size_t uz = static_cast<size_t>(nz2);
-
-            if (!tensor(ux, uy, uz) || visited(ux, uy, uz))
-              continue;
-
-            visited(ux, uy, uz) = true;
-            queue.push(Coord(ux, uy, uz));
-          }
-        }
-
-        result.push_back(std::move(connectedRegion));
-      }
-    }
-  }
-
-  return result;
-}
-
-void VoxelMesh::splitByConnectedRegions() {
-  std::vector<Region> res;
-  for (RegionId rid = 0; rid < regions.size(); rid++) {
-    auto ccs = getConnectedRegions(rid);
-    // assert(ccs.size() == 1);
-    res.insert(res.begin(), ccs.begin(), ccs.end());
-  }
-  regions = res;
-}
-
-VoxelId VoxelMesh::findCorner(Region &r) {
-  // we assume one connected component
+Voxel VoxelMesh::findCorner(Region &r) {
 
   Voxel target = Voxel::Zero();
+
   int numNormals = 0;
 
   for (Axis d = 0; d < DIMENSION; d++) {
+
     assert(r.signedNormals[d] != UNDEFINED);
 
     if (r.signedNormals[d] == ZERO) {
@@ -331,24 +267,28 @@ VoxelId VoxelMesh::findCorner(Region &r) {
 
   assert(numNormals > 0);
 
+  const Voxel dimensions = getDimensions(voxels);
+
   double minDist = std::numeric_limits<double>::max();
-  VoxelId minVid = 0;
-  for (VoxelId vid : r) {
-    Voxel &v = voxels[vid];
-    double dist = (v - target).norm();
+
+  Voxel minVoxel = Voxel::Zero();
+
+  for (Voxel v : r) {
+    const double dist = (v - target).norm();
     if (dist < minDist) {
+      minVoxel = v;
       minDist = dist;
-      minVid = vid;
     }
   }
-  return minVid;
+
+  return minVoxel;
 }
 
-const VoxelId INVALID_VOXEL_ID = std::numeric_limits<VoxelId>::max();
+// -----------------------------------------------------------------------------
+// Shortest path
+// -----------------------------------------------------------------------------
 
-std::vector<VoxelId>
-VoxelMesh::findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap,
-                            VoxelId start, VoxelId end, Axis a) {
+std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
   using QueueItem = std::pair<double, VoxelId>;
 
   std::priority_queue<QueueItem, std::vector<QueueItem>,
@@ -358,16 +298,25 @@ VoxelMesh::findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap,
   std::unordered_map<VoxelId, double> distance;
   std::unordered_map<VoxelId, VoxelId> parent;
 
-  const Vertex A = voxels[start].cast<double>();
-  const Vertex B = voxels[end].cast<double>();
+  const Voxel dimensions = getDimensions(voxels);
+
+  const Vertex A = start.cast<double>();
+
+  const Vertex B = end.cast<double>();
+
   const Vertex AB = B - A;
 
   const double lengthSquared = AB.squaredNorm();
 
   auto distanceToAB = [&](VoxelId id) {
-    Vertex P = voxels[id].cast<double>();
-    double t = std::clamp((P - A).dot(AB) / lengthSquared, 0.0, 1.0);
-    Vertex projection = A + t * AB;
+    const Vertex P = getVoxel(id).cast<double>();
+
+    const double t = lengthSquared > 0.0
+                         ? std::clamp((P - A).dot(AB) / lengthSquared, 0.0, 1.0)
+                         : 0.0;
+
+    const Vertex projection = A + t * AB;
+
     return (P - projection).norm();
   };
 
@@ -375,41 +324,43 @@ VoxelMesh::findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap,
                                            Voxel(0, 1, 0), Voxel(0, -1, 0),
                                            Voxel(0, 0, 1), Voxel(0, 0, -1)};
 
-  Voxel dimensions =
-      Eigen::Vector3<long>{voxelMap.dimension(0), voxelMap.dimension(1),
-                           voxelMap.dimension(2)}
-          .cast<int>();
+  VoxelId startId = getId(start);
+  VoxelId endId = getId(end);
+  distance[startId] = 0.0;
+  parent[startId] = startId;
 
-  distance[start] = 0.0;
-  parent[start] = start;
-  queue.push({0.0, start});
+  queue.push({0.0, startId});
 
   while (!queue.empty()) {
+
     auto [currentDistance, current] = queue.top();
     queue.pop();
 
     if (currentDistance > distance[current])
       continue;
 
-    if (current == end)
+    if (current == endId)
       break;
 
-    const Voxel &v = voxels[current];
+    const Voxel v = getVoxel(current);
 
     for (const Voxel &dir : directions) {
-      Voxel next = v + dir;
+
+      const Voxel next = v + dir;
 
       if ((next.array() < 0).any() ||
-          (next.array() >= dimensions.array()).any())
+          (next.array() >= dimensions.array()).any()) {
         continue;
+      }
 
-      VoxelId nextId = voxelMap(next[0], next[1], next[2]);
+      const VoxelId nextId = getId(next);
 
       if (nextId == INVALID_VOXEL_ID)
         continue;
 
-      double cost = 1.0 + distanceToAB(nextId);
-      double newDistance = currentDistance + cost;
+      const double cost = 1.0 + distanceToAB(nextId);
+
+      const double newDistance = currentDistance + cost;
 
       if (!distance.contains(nextId) || newDistance < distance[nextId]) {
 
@@ -421,65 +372,80 @@ VoxelMesh::findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap,
     }
   }
 
-  if (!distance.contains(end))
+  if (!distance.contains(endId))
     throw std::runtime_error("No path found");
 
-  std::vector<VoxelId> path;
+  std::vector<Voxel> path;
 
-  for (VoxelId v = end; v != start; v = parent[v])
-    path.push_back(v);
+  for (VoxelId vId = endId; vId != startId; vId = parent[vId])
+    path.push_back(getVoxel(vId));
 
   path.push_back(start);
+
   std::reverse(path.begin(), path.end());
 
   return path;
 }
 
-std::vector<VoxelId> VoxelMesh::findCorners() {
-  std::vector<VoxelId> res;
-  for (Region r : regions) {
+// -----------------------------------------------------------------------------
+// Find corners
+// -----------------------------------------------------------------------------
+
+std::vector<Voxel> VoxelMesh::findCorners() {
+
+  std::vector<Voxel> res;
+
+  for (Region &r : regions)
     res.push_back(findCorner(r));
-  }
+
   return res;
 }
-std::vector<std::vector<VoxelId>> VoxelMesh::findPaths() {
-  std::vector<VoxelId> corners = findCorners();
-  std::vector<std::vector<VoxelId>> res;
 
-  Voxel bounds = Voxel::Zero();
-  for (Region &r : regions)
-    bounds = bounds.cwiseMax(r.endSlices.cast<int>());
-  Eigen::Tensor<VoxelId, DIMENSION> voxelMap(bounds[0] + 1, bounds[1] + 1,
-                                             bounds[2] + 1);
-  voxelMap.setConstant(INVALID_VOXEL_ID);
-  for (Region &r : regions) {
-    for (VoxelId vId : r) {
-      const Voxel &v = voxels[vId];
-      voxelMap(v[0], v[1], v[2]) = vId;
-    }
-  }
-  size_t nbRegion = regions.size();
+// -----------------------------------------------------------------------------
+// Find paths between adjacent regions
+// -----------------------------------------------------------------------------
+
+std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
+
+  std::vector<Voxel> corners = findCorners();
+
+  std::vector<std::vector<Voxel>> res;
+
+  const Voxel dimensions = getDimensions(voxels);
+
+  const size_t nbRegion = regions.size();
+
   for (RegionId rId = 0; rId < nbRegion; rId++) {
+
     Region &r = regions[rId];
+
     for (RegionId adjId = rId; adjId < nbRegion; adjId++) {
+
       Region &adj = regions[adjId];
+
       Axis axis = 0;
       size_t commonLayers = 0;
+
       if (adjId == rId)
         continue;
+
       for (Axis d = 0; d < DIMENSION; d++) {
         if (adj.layerIds[d] == r.layerIds[d])
           commonLayers++;
         else
           axis = d;
       }
-      assert(commonLayers < 3);
-      bool isAdjacent = commonLayers == 2;
+
+      assert(commonLayers < DIMENSION);
+
+      const bool isAdjacent = commonLayers == DIMENSION - 1;
+
       if (!isAdjacent)
         continue;
-      res.push_back(
-          findShortestPath(voxelMap, corners[rId], corners[adjId], axis));
+
+      res.push_back(findShortestPath(corners[rId], corners[adjId], axis));
     }
   }
+
   return res;
 }

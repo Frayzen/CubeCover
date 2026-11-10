@@ -10,7 +10,7 @@ using GraphNodeId = size_t;
 
 class Graph {
 public:
-  std::vector<std::vector<size_t>> adjacency;
+  std::vector<std::vector<ssize_t>> adjacency;
 
   Graph(size_t amountNode) : adjacency(amountNode) {};
 

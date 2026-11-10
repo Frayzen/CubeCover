@@ -2,7 +2,7 @@
 #define SIGNED_AXIS_HPP
 
 #include "constants.hpp"
-#include "vertex.hpp"
+#include "ids.hpp"
 #include <cmath>
 #include <stdexcept>
 

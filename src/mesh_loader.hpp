@@ -2,7 +2,7 @@
 #define MESH_LOADER_HPP
 
 #include "constants.hpp"
-#include "vertex.hpp"
+#include "ids.hpp"
 #include <cassert>
 #include <vtkCell.h>
 #include <vtkCellType.h>

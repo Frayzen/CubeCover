@@ -6,8 +6,6 @@
 #include "mesh_loader.hpp"
 #include "region.hpp"
 #include "signed_axis.hpp"
-#include "slice_manager.hpp"
-#include "vertex.hpp"
 #include <Eigen/Dense>
 #include <Eigen/Eigen>
 #include <cmath>
@@ -28,42 +26,42 @@ struct BBox {
 
 struct VoxelMesh {
 private:
-  VoxelId findCorner(Region &r);
-  std::vector<VoxelId>
-  findShortestPath(Eigen::Tensor<VoxelId, DIMENSION> &voxelMap, VoxelId start,
-                   VoxelId end, Axis a);
+  Voxel findCorner(Region &r);
+  std::vector<Voxel> findShortestPath(Voxel start, Voxel end, Axis a);
   Graph voxelGraph;
 
 public:
   TetrahedralMesh &tetMesh;
   BBox bbox;
+  size_t nbVoxel;
 
-  std::array<SliceManager, DIMENSION> sliceManagers;
+  Eigen::Tensor<VoxelId, DIMENSION> voxels;
+  std::vector<Voxel> idToVoxel;
+
   std::vector<Region> regions;
 
   // A node here is a LayerId
   std::array<Graph, DIMENSION> regionGraphs;
 
   void buildMesh();
-  void splitByConnectedRegions();
-  std::vector<Region> getConnectedRegions(RegionId rid);
 
   double voxelSize;
   Vertex origin;
-  std::vector<Voxel> voxels;
   VoxelMesh(TetrahedralMesh &tetMesh)
-      : tetMesh(tetMesh), sliceManagers({0, 1, 2}), regionGraphs({1, 1, 1}),
-        voxelGraph(0) {
+      : tetMesh(tetMesh), regionGraphs({1, 1, 1}), voxelGraph(0) {
     buildMesh();
   }
 
   // return true if the cut happened correctly
   // it could return false if a cut already happened on this slide for this axis
   bool cut(Axis axis, SliceId slice);
-  std::vector<VoxelId> findCorners();
-  std::vector<std::vector<VoxelId>> findPaths();
+  std::vector<Voxel> findCorners();
+  std::vector<std::vector<Voxel>> findPaths();
 
-  friend class SliceManager;
+  void triangleVoxels(const Vertex &A, const Vertex &B, const Vertex &C);
+
+  VoxelId getId(const Voxel &v);
+  Voxel getVoxel(VoxelId id) const;
 };
 
 #endif
