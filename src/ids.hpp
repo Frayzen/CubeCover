@@ -14,6 +14,9 @@ using VoxelId = ssize_t;
 const VoxelId NO_VOXEL = -1;
 using RegionLayerId = ssize_t;
 const RegionLayerId NO_LAYER = -1;
+using PatchId = ssize_t;
+const PatchId NO_PATCH = -1;
+
 using Vertex = Eigen::Vector3d;
 using Voxel = Eigen::Vector3i;
 using ZoneId = size_t;

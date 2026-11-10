@@ -1,3 +1,4 @@
+#include "dual_saver.hpp"
 #include "mesh_loader.hpp"
 #include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
@@ -22,59 +23,39 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  // SurfacePatches patches = buildSurfacePatches(tetMesh);
-  // std::vector<size_t> patchIds(tetMesh.nbBoundaryFace);
-  // std::fill(patchIds.begin(), patchIds.end(), 0);
-  // size_t curPatch = 0;
-  // for (auto patch : patches.patches) {
-  //   for (FaceId f : patch) {
-  //     patchIds[f] = curPatch;
-  //     assert(f < tetMesh.nbBoundaryFace);
-  //   }
-  //   curPatch++;
-  // }
-
-  // std::vector<TetId> junctions = computeMedialAxisJunctions(tetMesh,
-  // patches); std::cout << "FOUND " << junctions.size() << " JUNCITONS " <<
-  // std::endl; std::vector<bool> junctionFlag(tetMesh.tets.size());
-  // std::fill(junctionFlag.begin(), junctionFlag.end(), false);
-  // for (TetId tId : junctions)
-  //   junctionFlag[tId] = true;
-
-  // MeshSaver tetMeshSaver(tetMesh, "tetMesh.vtu");
-  // tetMeshSaver.addField<ElementType::CellType>("isJunction", junctionFlag);
-  // tetMeshSaver.addField<ElementType::FaceBoundaryType>("patchIds", patchIds);
-  // tetMeshSaver.saveMesh();
-  // tetMeshSaver.saveFaces();
-
-  // std::vector<Vertex> clusters = computeJunctionClusters(tetMesh, junctions);
-  // saveNodes(clusters, "clusters.vtu");
-  // std::cout << "FOUND " << clusters.size() << " CLUSTERS " << std::endl;
-
   VoxelMesh mesh(tetMesh);
 
-  // for (size_t i = 0; i < clusters.size(); i++) {
-  //   for (size_t j = i; j < clusters.size(); j++) {
-  //     for (Axis d = 0; d < DIMENSION; d++) {
-  //       if (std::abs(clusters[i][d] - clusters[j][d]) < (3 * mesh.voxelSize))
-  //         clusters[i][d] = clusters[j][d];
-  //     }
-  //   }
-  // }
+  std::vector<Voxel> junctions;
+  // #define COMPUTEJUNCTIONS
+#ifdef COMPUTEJUNCTIONS
+#include "junctions.hpp"
+  SurfacePatches patches = buildSurfacePatches(tetMesh);
+  std::vector<size_t> patchIds(tetMesh.nbBoundaryFace);
+  std::fill(patchIds.begin(), patchIds.end(), 0);
+  size_t curPatch = 0;
+  for (auto patch : patches.patches) {
+    for (FaceId f : patch) {
+      patchIds[f] = curPatch;
+      assert(f < tetMesh.nbBoundaryFace);
+    }
+    curPatch++;
+  }
 
-  // for (Vertex cutVertex : clusters) {
-  //   for (Axis d = 0; d < DIMENSION; d++) {
-  //     double coord = cutVertex[d];
-  //     double relative = coord - mesh.origin[d];
-  //     SliceId sliceId = std::round(relative / mesh.voxelSize);
-  //     mesh.cut(d, sliceId);
-  //   }
-  // }
+  std::vector<Voxel> junctions = computeMedialAxisJunctions(mesh, patches);
+  std::cout << "FOUND " << junctions.size() << " JUNCTIONS " << std::endl;
+
+  MeshSaver tetMeshSaver(tetMesh, "patches.vtu");
+  tetMeshSaver.addField<ElementType::FaceBoundaryType>("patchIds", patchIds);
+  tetMeshSaver.saveMesh();
+  tetMeshSaver.saveFaces();
+#endif
 
   for (Axis d = 0; d < DIMENSION; d++) {
     double nbSlice = mesh.voxels.dimension(d);
     mesh.cut(d, nbSlice / 2);
   }
+
+  saveDual("dual.vtu", mesh);
 
   for (Axis d = 0; d < DIMENSION; d++)
     mesh.regionGraphs[d].exportDot("graph_dim" + std::to_string(d) + ".dot");
@@ -92,6 +73,11 @@ int main(int argc, char *argv[]) {
   }
 
   VoxelMeshSaver saver(mesh);
+
+  std::vector<bool> junctionFlags(mesh.nbVoxel);
+  std::fill(junctionFlags.begin(), junctionFlags.end(), false);
+  for (auto voxel : junctions)
+    junctionFlags[mesh.getId(voxel)] = true;
 
   std::vector<bool> cornersFlag(mesh.nbVoxel);
   std::fill(cornersFlag.begin(), cornersFlag.end(), false);
@@ -131,6 +117,7 @@ int main(int argc, char *argv[]) {
   saver.addField("zLayer", zLayer);
   saver.addField("corner", cornersFlag);
   saver.addField("pathIds", pathIds);
+  saver.addField("junctionFlag", junctionFlags);
 
   saver.saveMesh();
 }

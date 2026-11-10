@@ -1,10 +1,12 @@
 #include "junctions.hpp"
 #include "old/signed_axis.hpp"
+#include "voxel_mesh.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <limits>
 #include <queue>
+#include <unordered_set>
 #include <vector>
 
 struct FacePlane {
@@ -16,8 +18,6 @@ const double relativeTolerance = 0.04;
 const double normalTolerance = 1e-1;
 const double planeTolerance = 1e-0;
 const size_t minComponentSize = 3;
-
-using NodePatchDistances = std::vector<std::vector<double>>;
 
 // -----------------------------------------------------------------------------
 // Surface patch construction
@@ -53,7 +53,7 @@ static bool areCoplanar(const FacePlane &a, const FacePlane &b,
 }
 
 SurfacePatches buildSurfacePatches(TetrahedralMesh &mesh) {
-  SurfacePatches result;
+  SurfacePatches result = {mesh};
 
   result.faceToPatch.assign(mesh.nbBoundaryFace, -1);
 
@@ -168,8 +168,8 @@ static Vertex closestPointOnTriangle(const Vertex &p, const Vertex &a,
 }
 
 static double pointToPatchDistanceSquared(const Vertex &point, int patchId,
-                                          const TetrahedralMesh &mesh,
                                           const SurfacePatches &surface) {
+  auto &mesh = surface.mesh;
   double minDistanceSquared = std::numeric_limits<double>::infinity();
 
   for (FaceId faceId : surface.patches[patchId]) {
@@ -188,138 +188,68 @@ static double pointToPatchDistanceSquared(const Vertex &point, int patchId,
 }
 
 // -----------------------------------------------------------------------------
-// Compute distances from every mesh vertex to every surface patch
-// -----------------------------------------------------------------------------
-
-static NodePatchDistances
-computeNodePatchDistances(const TetrahedralMesh &mesh,
-                          const SurfacePatches &surface) {
-  NodePatchDistances distances(
-      mesh.vertices.size(),
-      std::vector<double>(surface.patches.size(),
-                          std::numeric_limits<double>::infinity()));
-
-  for (NodeId nodeId = 0; nodeId < mesh.vertices.size(); ++nodeId) {
-    const Vertex &point = mesh.vertices[nodeId];
-
-    for (int patchId = 0; patchId < static_cast<int>(surface.patches.size());
-         ++patchId) {
-      distances[nodeId][patchId] =
-          std::sqrt(pointToPatchDistanceSquared(point, patchId, mesh, surface));
-    }
-  }
-
-  return distances;
-}
-
-// -----------------------------------------------------------------------------
-// Remove small connected components of candidate tetrahedra
-// -----------------------------------------------------------------------------
-
-static std::vector<TetId>
-removeSmallComponents(const TetrahedralMesh &mesh,
-                      const std::vector<bool> &candidates,
-                      size_t minComponentSize) {
-  std::vector<bool> visited(mesh.tets.size(), false);
-  std::vector<TetId> result;
-
-  for (TetId seed = 0; seed < mesh.tets.size(); ++seed) {
-    if (!candidates[seed] || visited[seed])
-      continue;
-
-    std::vector<TetId> component;
-    std::queue<TetId> queue;
-
-    queue.push(seed);
-    visited[seed] = true;
-
-    while (!queue.empty()) {
-      const TetId current = queue.front();
-      queue.pop();
-
-      component.push_back(current);
-
-      // Two tetrahedra are adjacent if they share a face.
-      for (ssize_t faceId : mesh.tetToFaces[current]) {
-        if (faceId < 0)
-          continue;
-
-        const auto &adjacent = mesh.faces[faceId].adjacentCells;
-
-        for (ssize_t neighbor : adjacent) {
-          if (neighbor < 0 ||
-              neighbor >= static_cast<ssize_t>(mesh.tets.size()))
-            continue;
-
-          const TetId neighborId = static_cast<TetId>(neighbor);
-
-          if (!candidates[neighborId] || visited[neighborId])
-            continue;
-
-          visited[neighborId] = true;
-          queue.push(neighborId);
-        }
-      }
-    }
-
-    if (component.size() >= minComponentSize) {
-      result.insert(result.end(), component.begin(), component.end());
-    }
-  }
-
-  return result;
-}
-
-// -----------------------------------------------------------------------------
 // Main function
 // -----------------------------------------------------------------------------
 
-std::vector<TetId> computeMedialAxisJunctions(const TetrahedralMesh &mesh,
+std::vector<Voxel> computeMedialAxisJunctions(const VoxelMesh &mesh,
                                               const SurfacePatches &surface) {
-  assert(mesh.nbBoundaryFace > 0);
-  assert(relativeTolerance >= 0.0);
 
-  // 2. Compute vertex-to-patch distances.
-  const NodePatchDistances distances = computeNodePatchDistances(mesh, surface);
+  Eigen::DSizes<Eigen::Index, 3> dim = mesh.voxels.dimensions();
 
-  // 3. Detect candidate tetrahedra.
-  std::vector<bool> candidates(mesh.tets.size(), false);
+  for (Axis d = 0; d < DIMENSION; d++)
+    dim[d]++;
 
-  for (TetId tetId = mesh.nbBoundaryTet; tetId < mesh.tets.size(); ++tetId) {
-    const Tetrahedron &tet = mesh.tets[tetId];
+  Eigen::Tensor<PatchId, DIMENSION> nodeClosestPatch(dim);
 
-    std::vector<int> patchSupport(surface.patches.size(), 0);
+  // Compute closest surface patch for every grid node
+  for (size_t i = 0; i <= mesh.voxels.dimension(0); i++) {
+    for (size_t j = 0; j <= mesh.voxels.dimension(1); j++) {
+      for (size_t k = 0; k <= mesh.voxels.dimension(2); k++) {
 
-    for (size_t localId = 0; localId < NB_NODE_PER_TET; ++localId) {
-      const NodeId nodeId = tet[localId];
-      const auto &nodeDistances = distances[nodeId];
+        Vertex v = mesh.origin + mesh.voxelSize * Vertex(i, j, k);
 
-      const double minDistance =
-          *std::min_element(nodeDistances.begin(), nodeDistances.end());
+        double minDist = INFINITY;
+        PatchId id = NO_PATCH;
 
-      if (!std::isfinite(minDistance))
-        continue;
+        for (size_t p = 0; p < surface.patches.size(); p++) {
+          double dist = pointToPatchDistanceSquared(v, p, surface);
 
-      for (size_t patchId = 0; patchId < nodeDistances.size(); ++patchId) {
-        if (nodeDistances[patchId] <= (1.0 + relativeTolerance) * minDistance) {
-          ++patchSupport[patchId];
+          if (dist < minDist) {
+            minDist = dist;
+            id = static_cast<PatchId>(p);
+          }
         }
+
+        nodeClosestPatch(i, j, k) = id;
       }
     }
-
-    // A patch must be competitive at least two tet vertices.
-    size_t supportedPatches = 0;
-
-    for (int support : patchSupport) {
-      if (support >= 2)
-        ++supportedPatches;
-    }
-
-    candidates[tetId] = supportedPatches >= 3;
   }
 
-  // 4. Remove isolated or very small candidate components.
-  return removeSmallComponents(mesh, candidates, minComponentSize);
+  const std::vector<Voxel> offsets = {
+      {-1, 1, 1},  {1, 1, 1},  {-1, -1, 1},  {1, -1, 1},
+      {-1, 1, -1}, {1, 1, -1}, {-1, -1, -1}, {1, -1, -1},
+  };
+
+  std::vector<Voxel> junctions;
+  for (int i = 0; i < mesh.voxels.dimension(0); i++) {
+    for (int j = 0; j < mesh.voxels.dimension(1); j++) {
+      for (int k = 0; k < mesh.voxels.dimension(2); k++) {
+        if (mesh.voxels(i, j, k) == NO_VOXEL)
+          continue;
+        std::unordered_set<PatchId> closestPatches;
+        for (const Voxel &offset : offsets) {
+          PatchId id = nodeClosestPatch(
+              i + (offset.x() > 0), j + (offset.y() > 0), k + (offset.z() > 0));
+          if (id != NO_PATCH)
+            closestPatches.insert(id);
+        }
+        if (closestPatches.size() >= 3)
+          junctions.emplace_back(i, j, k);
+      }
+    }
+  }
+
+  return junctions;
 }
 
 std::vector<Vertex>

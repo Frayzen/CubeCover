@@ -2,14 +2,16 @@
 #define JUNCTIONS_HPP
 #include "ids.hpp"
 #include "mesh_loader.hpp"
+#include "voxel_mesh.hpp"
 
 struct SurfacePatches {
+  const TetrahedralMesh &mesh;
   std::vector<int> faceToPatch;
   std::vector<std::vector<FaceId>> patches;
 };
 
 SurfacePatches buildSurfacePatches(TetrahedralMesh &mesh);
-std::vector<TetId> computeMedialAxisJunctions(const TetrahedralMesh &tetMesh,
+std::vector<Voxel> computeMedialAxisJunctions(const VoxelMesh &mesh,
                                               const SurfacePatches &surface);
 
 std::vector<Vertex>
