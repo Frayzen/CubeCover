@@ -1,4 +1,5 @@
 #include "dual_saver.hpp"
+#include "ids.hpp"
 #include "mesh_loader.hpp"
 #include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
@@ -50,27 +51,37 @@ int main(int argc, char *argv[]) {
   tetMeshSaver.saveFaces();
 #endif
 
-  for (Axis d = 0; d < DIMENSION; d++) {
-    double nbSlice = mesh.voxels.dimension(d);
-    mesh.cut(d, nbSlice / 2);
-  }
+  Voxel mid = mesh.bounds() / 2;
+  for (Axis d = 0; d < DIMENSION; d++)
+    mesh.cut(d, mid);
+  // mesh.cut(2, mesh.bounds() / 4);
 
+  for (Region &r : mesh.regions)
+    std::cout << r << std::endl;
+
+  std::cout << mesh.layerManagers[2] << std::endl;
+
+  std::vector<Voxel> corners;
+  std::vector<int> pathIds(mesh.nbVoxel);
+  std::fill(pathIds.begin(), pathIds.end(), 0);
+#define COMPUTEPATHS
+#ifdef COMPUTEPATHS
   saveDual("dual.vtu", mesh);
 
   for (Axis d = 0; d < DIMENSION; d++)
-    mesh.regionGraphs[d].exportDot("graph_dim" + std::to_string(d) + ".dot");
-  std::vector<int> pathIds(mesh.nbVoxel);
+    mesh.layerManagers[d].graph().exportDot("graph_dim" + std::to_string(d) +
+                                            ".dot");
 
-  std::vector<Voxel> corners = mesh.findCorners();
+  corners = mesh.findCorners();
   std::vector<std::vector<Voxel>> paths = mesh.findPaths();
 
-  std::fill(pathIds.begin(), pathIds.end(), 0);
   int pathId = 1;
   for (auto path : paths) {
     for (Voxel v : path)
       pathIds[mesh.getId(v)] = pathId;
     pathId++;
   }
+#endif
 
   VoxelMeshSaver saver(mesh);
 
@@ -80,6 +91,9 @@ int main(int argc, char *argv[]) {
     junctionFlags[mesh.getId(voxel)] = true;
 
   std::vector<bool> cornersFlag(mesh.nbVoxel);
+
+  std::vector<bool> allowedCutZ(mesh.nbVoxel);
+
   std::fill(cornersFlag.begin(), cornersFlag.end(), false);
   std::vector<size_t> colors(mesh.nbVoxel);
   std::fill(colors.begin(), colors.end(), NO_REGION);
@@ -92,7 +106,8 @@ int main(int argc, char *argv[]) {
   std::vector<double> yLayer(mesh.nbVoxel);
   std::vector<double> zLayer(mesh.nbVoxel);
   RegionId regionId = 0;
-  for (Region region : mesh.regions) {
+  for (Region &region : mesh.regions) {
+    RegionLayerId layerId = region.layerIds[2];
     for (Voxel v : region) {
       VoxelId id = mesh.getId(v);
       colors[id] = regionId;
@@ -103,11 +118,18 @@ int main(int argc, char *argv[]) {
       xLayer[id] = region.layerIds[0];
       yLayer[id] = region.layerIds[1];
       zLayer[id] = region.layerIds[2];
+
+      allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(layerId, v[2]);
+
+#ifdef COMPUTEPATHS
       if (v == corners[regionId])
         cornersFlag[id] = true;
+#endif
     }
+
     regionId++;
   }
+
   saver.addField("region", colors);
   saver.addField("xNormal", xNormal);
   saver.addField("yNormal", yNormal);
@@ -118,6 +140,7 @@ int main(int argc, char *argv[]) {
   saver.addField("corner", cornersFlag);
   saver.addField("pathIds", pathIds);
   saver.addField("junctionFlag", junctionFlags);
+  saver.addField("allowedCutZ", allowedCutZ);
 
   saver.saveMesh();
 }

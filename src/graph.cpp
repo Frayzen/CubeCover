@@ -5,6 +5,17 @@
 #include <queue>
 #include <stdexcept>
 
+std::vector<std::vector<GraphNodeId>> Graph::parents() const {
+  std::vector<std::vector<GraphNodeId>> parents(nbNode());
+  GraphNodeId curParent = 0;
+  for (auto adj : adjacency) {
+    for (GraphNodeId child : adj)
+      parents[child].push_back(curParent);
+    curParent++;
+  }
+  return parents;
+}
+
 double Graph::getWeight(AdjacencyWeight &w, size_t from, size_t to) {
   for (size_t i = 0; i < adjacency[from].size(); i++) {
     if (adjacency[from][i] == to)

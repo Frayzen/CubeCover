@@ -1,8 +1,18 @@
 #include "region.hpp"
+#include "ids.hpp"
 #include "voxel_mesh.hpp"
+#include <cmath>
 
-bool Region::containsSlice(Axis axis, SliceId sliceId) {
+bool Region::containsSlice(Axis axis, SliceId sliceId) const {
   return startSlices[axis] <= sliceId && endSlices[axis] > sliceId;
+}
+
+bool Region::contains(const Voxel &v) const {
+  for (Axis d = 0; d < DIMENSION; d++) {
+    if (!containsSlice(d, v[d]))
+      return false;
+  }
+  return true;
 }
 
 Region::RegionIterator::RegionIterator(const Region *region, bool atEnd)
@@ -75,4 +85,19 @@ bool Region::RegionIterator::operator==(const RegionIterator &other) const {
 
   return region_ == other.region_ && atEnd_ == other.atEnd_ && x_ == other.x_ &&
          y_ == other.y_ && z_ == other.z_;
+}
+
+void Region::addCut(Axis axis, SliceId splittingSlice) {
+  Eigen::Vector3<SliceId> newStartSlices;
+  newStartSlices.setConstant(MAX_SLICE);
+  Eigen::Vector3<SliceId> newEndSlices;
+  newEndSlices.setConstant(MIN_SLICE);
+  size_t i = 0;
+  for (Voxel v : *this) {
+    newStartSlices = newStartSlices.cwiseMin(v.cast<SliceId>());
+    newEndSlices = newEndSlices.cwiseMax(v.cast<SliceId>());
+    i++;
+  }
+  startSlices = newStartSlices;
+  endSlices = newEndSlices + Eigen::Vector3<SliceId>::Ones();
 }

@@ -192,5 +192,5 @@ void saveDual(const std::string &filename, const VoxelMesh &mesh) {
     }
   }
 
-  saveCuts("cuts.vtu", cuts);
+  saveCuts(filename, cuts);
 }

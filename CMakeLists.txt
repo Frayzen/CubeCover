@@ -5,6 +5,20 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(ENABLE_SANITIZERS "Enable sanitizers" OFF)
+
+if(ENABLE_SANITIZERS)
+    add_compile_options(
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -g
+    )
+
+    add_link_options(
+        -fsanitize=address,undefined
+    )
+endif()
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(VTK REQUIRED COMPONENTS
     CommonCore

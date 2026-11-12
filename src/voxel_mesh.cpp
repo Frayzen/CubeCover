@@ -1,6 +1,7 @@
 
 #include "voxel_mesh.hpp"
 #include "constants.hpp"
+#include "ids.hpp"
 #include "signed_axis.hpp"
 #include "utils.hpp"
 
@@ -91,46 +92,58 @@ static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
   }
 }
 
-bool VoxelMesh::cut(Axis axis, SliceId splittingSlice) {
-  size_t nbRegion = regions.size();
-  std::vector<RegionLayerId> newLayerIds(regionGraphs[axis].nbNode());
-  std::fill(newLayerIds.begin(), newLayerIds.end(), NO_LAYER);
-  for (RegionId rId = 0; rId < nbRegion; rId++) {
-    Region &region = regions[rId];
-    bool alreadySplittedHere = region.startSlices[axis] == splittingSlice;
-    if (alreadySplittedHere)
-      return false;
-    if (region.containsSlice(axis, splittingSlice)) {
-      // Create region
-      Region newRegion(region);
-      RegionId newRegionId = regions.size();
-      newRegion.startSlices[axis] = splittingSlice;
-      region.endSlices[axis] = splittingSlice;
-      updateNormals(axis, region, newRegion);
+bool VoxelMesh::cut(Axis axis, Voxel origin) {
+  assert(getId(origin) != NO_VOXEL);
 
-      // Layer handling
-      RegionLayerId regionLayer = region.layerIds[axis];
-      bool encounteredLayer = newLayerIds[regionLayer] != NO_LAYER;
-      if (!encounteredLayer) {
-        RegionLayerId newLayer = regionGraphs[axis].createNode();
-        newLayerIds[regionLayer] = newLayer;
-        regionGraphs[axis].adjacency[newLayer] =
-            regionGraphs[axis].adjacency[regionLayer];
-        regionGraphs[axis].adjacency[regionLayer] = {newLayer};
-      }
-      RegionLayerId newLayer = newLayerIds[regionLayer];
-      newRegion.layerIds[axis] = newLayer;
-
-      // KEEP AT THE END
-      regions.push_back(newRegion);
+  RegionLayerId cutLayer = NO_LAYER;
+  for (Region &r : regions) {
+    if (r.contains(origin)) {
+      cutLayer = r.layerIds[axis];
+      break;
     }
   }
+  assert(cutLayer != NO_LAYER);
+
+  RegionLayerId newLayer = layerManagers[axis].prepareSplit(cutLayer);
+
+  std::vector<RegionId> newRegions;
+
+  SliceId splittingSlice = origin[axis];
+  size_t nbRegion = regions.size();
+  for (RegionId regionId = 0; regionId < nbRegion; regionId++) {
+    Region &region = regions[regionId];
+    if (region.layerIds[axis] != cutLayer)
+      continue;
+    bool alreadySplittedHere = region.startSlices[axis] == splittingSlice;
+    assert(!alreadySplittedHere);
+    assert(region.containsSlice(axis, splittingSlice));
+    // Create region
+    Region newRegion(region);
+    RegionId newRegionId = regions.size();
+
+    newRegions.push_back(newRegionId);
+
+    newRegion.layerIds[axis] = newLayer;
+    newRegion.startSlices[axis] = splittingSlice;
+    region.endSlices[axis] = splittingSlice;
+    newRegion.addCut(axis, splittingSlice);
+    region.addCut(axis, splittingSlice);
+    updateNormals(axis, region, newRegion);
+
+    regions.push_back(newRegion);
+    for (Axis a = 0; a < DIMENSION; a++) {
+      if (a != axis)
+        layerManagers[a].splitRegionFromAnotherAxis(regionId, newRegionId);
+    }
+  }
+
+  layerManagers[axis].concretizeSplit(newLayer, newRegions);
 
   return true;
 }
 
 void VoxelMesh::buildMesh() {
-
+  BBox bbox;
   for (const Vertex &v : tetMesh.vertices)
     bbox.update(v);
 
@@ -168,7 +181,11 @@ void VoxelMesh::buildMesh() {
   for (Axis d = 0; d < DIMENSION; d++) {
     initialRegion.startSlices[d] = 0;
     initialRegion.endSlices[d] = dimensions[d];
+    initialRegion.cutableRanges[d] = std::make_pair(0, dimensions[d]);
   }
+  for (Axis d = 0; d < DIMENSION; d++)
+    layerManagers[d].initialize(initialRegion);
+
   regions.push_back(initialRegion);
 }
 

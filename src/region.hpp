@@ -50,12 +50,15 @@ struct Region {
     void advanceToOccupied();
   };
 
+  std::array<std::pair<size_t, size_t>, DIMENSION>
+      cutableRanges; // TODO fill this
+
   VoxelMesh *meshPtr;
   Eigen::Vector3<SliceId> startSlices;
   Eigen::Vector3<SliceId> endSlices;
 
   std::array<IntegerSign, DIMENSION> signedNormals = {ZERO, ZERO, ZERO};
-  std::array<RegionLayerId, DIMENSION> layerIds;
+  Eigen::Vector3<RegionLayerId> layerIds;
 
   Region(VoxelMesh &mesh) : meshPtr(&mesh) {}
 
@@ -63,13 +66,17 @@ struct Region {
 
   RegionIterator end() const { return RegionIterator(this, true); }
 
-  bool containsSlice(Axis axis, SliceId sliceId);
+  bool containsSlice(Axis axis, SliceId sliceId) const;
+  bool contains(const Voxel &v) const;
+
+  void addCut(Axis axis, SliceId splittingSlice);
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Region &r) {
   os << "REGION : " << std::endl;
   os << "FROM :" << r.startSlices.transpose() << std::endl;
   os << "TO :" << r.endSlices.transpose() << std::endl;
+  os << "LAYERS :" << r.layerIds.transpose() << std::endl;
   return os;
 }
 
