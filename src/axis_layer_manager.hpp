@@ -12,7 +12,7 @@ class VoxelMesh;
 struct TraversalCut {
   SliceId from;
   SliceId to;
-  inline bool contains(SliceId val) { return val >= from && val <= to; }
+  inline bool contains(SliceId val) const { return val >= from && val <= to; }
 };
 
 using TraversalCuts = std::vector<TraversalCut>;
@@ -22,16 +22,14 @@ private:
   Axis axis;
 
   // A node here is a RegionLayerId
-  Graph childGraph;
-  Graph parentGraph;
   VoxelMesh &mesh;
 
   std::vector<TraversalCuts> regionToChildrenTraversalCuts;
-  std::vector<std::vector<RegionId>> layerToRegions;
-
-  void updateTraversalCuts(RegionId regionId);
 
 public:
+  Graph childGraph;
+  Graph parentGraph;
+  std::vector<std::vector<RegionId>> layerToRegions;
   AxisLayerManager(VoxelMesh &mesh, Axis axis)
       : mesh(mesh), axis(axis), childGraph(0), parentGraph(0) {};
 
@@ -41,7 +39,8 @@ public:
   void initialize(Region &initRegion);
   void splitRegionFromAnotherAxis(RegionId splittedRegionId, RegionId regionId);
 
-  bool isCutAllowed(RegionLayerId id, SliceId slice) const;
+  bool isCutAllowed(RegionId id, SliceId slice) const;
+  void updateTraversalCuts(RegionId regionId);
 
   friend std::ostream &operator<<(std::ostream &os, const AxisLayerManager &m);
 };

@@ -72,6 +72,8 @@ public:
 
   VoxelId getId(const Voxel &v);
   Voxel getVoxel(VoxelId id) const;
+
+  std::vector<RegionId> getAdjacentRegions(RegionId regionId);
 };
 
 #endif

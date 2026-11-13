@@ -50,9 +50,6 @@ struct Region {
     void advanceToOccupied();
   };
 
-  std::array<std::pair<size_t, size_t>, DIMENSION>
-      cutableRanges; // TODO fill this
-
   VoxelMesh *meshPtr;
   Eigen::Vector3<SliceId> startSlices;
   Eigen::Vector3<SliceId> endSlices;

@@ -56,10 +56,11 @@ int main(int argc, char *argv[]) {
     mesh.cut(d, mid);
   // mesh.cut(2, mesh.bounds() / 4);
 
-  for (Region &r : mesh.regions)
-    std::cout << r << std::endl;
-
-  std::cout << mesh.layerManagers[2] << std::endl;
+  // for (Region &r : mesh.regions)
+  //   std::cout << r << std::endl;
+  // std::cout << mesh.layerManagers[2] << std::endl;
+  mesh.cut(0, mesh.bounds() / 7);
+  // std::cout << mesh.layerManagers[2] << std::endl;
 
   std::vector<Voxel> corners;
   std::vector<int> pathIds(mesh.nbVoxel);
@@ -92,6 +93,8 @@ int main(int argc, char *argv[]) {
 
   std::vector<bool> cornersFlag(mesh.nbVoxel);
 
+  std::vector<bool> allowedCutX(mesh.nbVoxel);
+  std::vector<bool> allowedCutY(mesh.nbVoxel);
   std::vector<bool> allowedCutZ(mesh.nbVoxel);
 
   std::fill(cornersFlag.begin(), cornersFlag.end(), false);
@@ -119,7 +122,9 @@ int main(int argc, char *argv[]) {
       yLayer[id] = region.layerIds[1];
       zLayer[id] = region.layerIds[2];
 
-      allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(layerId, v[2]);
+      allowedCutX[id] = mesh.layerManagers[0].isCutAllowed(regionId, v[0]);
+      allowedCutY[id] = mesh.layerManagers[1].isCutAllowed(regionId, v[1]);
+      allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(regionId, v[2]);
 
 #ifdef COMPUTEPATHS
       if (v == corners[regionId])
@@ -140,6 +145,8 @@ int main(int argc, char *argv[]) {
   saver.addField("corner", cornersFlag);
   saver.addField("pathIds", pathIds);
   saver.addField("junctionFlag", junctionFlags);
+  saver.addField("allowedCutX", allowedCutX);
+  saver.addField("allowedCutY", allowedCutY);
   saver.addField("allowedCutZ", allowedCutZ);
 
   saver.saveMesh();

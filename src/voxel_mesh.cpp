@@ -96,9 +96,12 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   assert(getId(origin) != NO_VOXEL);
 
   RegionLayerId cutLayer = NO_LAYER;
-  for (Region &r : regions) {
+  RegionId initRegionId = NO_REGION;
+  for (RegionId rId = 0; rId < regions.size(); rId++) {
+    Region &r = regions[rId];
     if (r.contains(origin)) {
       cutLayer = r.layerIds[axis];
+      initRegionId = rId;
       break;
     }
   }
@@ -131,6 +134,7 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
     updateNormals(axis, region, newRegion);
 
     regions.push_back(newRegion);
+
     for (Axis a = 0; a < DIMENSION; a++) {
       if (a != axis)
         layerManagers[a].splitRegionFromAnotherAxis(regionId, newRegionId);
@@ -139,6 +143,22 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
 
   layerManagers[axis].concretizeSplit(newLayer, newRegions);
 
+  Region &initRegion = regions[initRegionId];
+
+  // for (RegionId updateId : layerManagers[axis].layerToRegions[newLayer])
+  //   layerManagers[axis].updateTraversalCuts(updateId);
+  // for (Axis a = 0; a < DIMENSION; a++) {
+  //   AxisLayerManager &lm = layerManagers[a];
+  //   for (RegionId updateId : lm.layerToRegions[initRegion.layerIds[a]])
+  //     lm.updateTraversalCuts(updateId);
+  // }
+  for (Axis a = 0; a < DIMENSION; a++) {
+    AxisLayerManager &lm = layerManagers[a];
+    for (RegionLayerId layerId = 0; layerId < lm.layerToRegions.size();
+         layerId++)
+      for (RegionId updateId : lm.layerToRegions[layerId])
+        lm.updateTraversalCuts(updateId);
+  }
   return true;
 }
 
@@ -362,17 +382,16 @@ std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
       if (adjId == rId)
         continue;
 
+      bool isAdjacent = false;
       for (Axis d = 0; d < DIMENSION; d++) {
         if (adj.layerIds[d] == r.layerIds[d])
           commonLayers++;
         else
-          axis = d;
+          isAdjacent = adj.startSlices[d] == r.endSlices[d] ||
+                       adj.endSlices[d] == r.startSlices[d];
       }
-
       assert(commonLayers < DIMENSION);
-
-      const bool isAdjacent = commonLayers == DIMENSION - 1;
-
+      isAdjacent &= commonLayers == 2;
       if (!isAdjacent)
         continue;
 
