@@ -2,6 +2,7 @@
 #include "ids.hpp"
 #include "voxel_mesh.hpp"
 #include <algorithm>
+#include <queue>
 #include <vector>
 
 RegionLayerId AxisLayerManager::prepareSplit(RegionLayerId layerId) {
@@ -141,24 +142,69 @@ bool AxisLayerManager::isCutAllowed(RegionId regionId, SliceId slice) const {
 
 std::vector<RegionId> AxisLayerManager::findCutRegions(RegionId regionId,
                                                        SliceId slice) {
-  // std::vector<RegionId> res;
-  // bool hasAccessibleParent;
-  // do {
-  //   hasAccessibleParent = false;
-  //   res.push_back(regionId);
-  //   Region &region = mesh.regions[regionId];
-  //   for (const TraversalCut &cut : regionToChildrenTraversalCuts[regionId])
-  //     if (cut.contains(slice)) {
-  //       hasAccessibleParent = true;
-  //       break;
-  //     }
-  //   if (hasAccessibleParent) {
-  //     RegionLayerId layerId = region.layerIds[axis];
-  //     RegionLayerId parent = NO_LAYER;
-  //     for (RegionLayerId parents : parentGraph[layerId]) {
-  //       if (getAdjacentRegions)
-  //     }
-  //   }
-  // } while (hasAccessibleParent);
-  return {};
+  const Axis nextAxis = (axis + 1) % DIMENSION;
+  const Axis prevAxis = (axis + 2) % DIMENSION;
+  std::vector<RegionId> res;
+  std::vector<bool> processedFlag(mesh.regions.size(), false);
+  std::queue<RegionId> queue;
+  queue.push(regionId);
+  processedFlag[regionId] = true;
+  while (!queue.empty()) {
+    RegionId curId = queue.front();
+    queue.pop();
+    res.push_back(curId);
+    for (Axis otherAxis = 0; otherAxis < DIMENSION; otherAxis++) {
+      if (otherAxis == axis)
+        continue;
+      const Axis remainingAxis = otherAxis == nextAxis ? prevAxis : nextAxis;
+      for (RegionId adjId : mesh.getAdjacentRegions(curId, otherAxis)) {
+        if (processedFlag[adjId])
+          continue;
+
+        bool canCut = false;
+        for (const auto &cut : regionToChildrenTraversalCuts[adjId]) {
+          if (cut.contains(slice))
+            canCut = true;
+        }
+        if (!canCut)
+          continue;
+
+        queue.push(adjId);
+        processedFlag[adjId] = true;
+
+        Region &region = mesh.regions[curId];
+        Region &adjacent = mesh.regions[adjId];
+
+        const SliceId axisStart = region.startSlices(axis);
+        const SliceId axisEnd = region.endSlices(axis);
+
+        const SliceId oAxisEnd = region.endSlices(otherAxis);
+        const SliceId oAxisStart = region.startSlices(otherAxis);
+
+        const SliceId vStart = std::max(region.startSlices(remainingAxis),
+                                        adjacent.startSlices(remainingAxis));
+        const SliceId vEnd = std::min(region.endSlices(remainingAxis),
+                                      adjacent.endSlices(remainingAxis));
+        const SliceId uStart = std::max(axisStart, adjacent.startSlices(axis));
+        const SliceId uEnd = std::min(axisEnd, adjacent.endSlices(axis));
+        const SliceId face = adjacent.startSlices(otherAxis) == oAxisEnd
+                                 ? oAxisEnd
+                                 : oAxisStart - 1;
+        for (SliceId u = uStart; u < uEnd; ++u) {
+          Eigen::Vector3i voxel = Eigen::Vector3i::Zero();
+          voxel(axis) = u;
+          voxel(otherAxis) = face;
+          for (SliceId v = vStart; v < vEnd; ++v) {
+            voxel(remainingAxis) = v;
+            if (mesh.voxels(voxel.x(), voxel.y(), voxel.z()) != NO_VOXEL) {
+              queue.push(adjId);
+              processedFlag[adjId] = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return res;
 }

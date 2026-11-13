@@ -1,6 +1,7 @@
 #include "dual_saver.hpp"
 #include "ids.hpp"
 #include "mesh_loader.hpp"
+#include "mesh_saver.hpp"
 #include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
 #include "voxel_mesh_saver.hpp"
@@ -27,9 +28,9 @@ int main(int argc, char *argv[]) {
   VoxelMesh mesh(tetMesh);
 
   std::vector<Voxel> junctions;
-  // #define COMPUTEJUNCTIONS
+// #define COMPUTEJUNCTIONS
 #ifdef COMPUTEJUNCTIONS
-#include "junctions.hpp"
+  // #include "junctions.hpp"
   SurfacePatches patches = buildSurfacePatches(tetMesh);
   std::vector<size_t> patchIds(tetMesh.nbBoundaryFace);
   std::fill(patchIds.begin(), patchIds.end(), 0);
@@ -42,7 +43,7 @@ int main(int argc, char *argv[]) {
     curPatch++;
   }
 
-  std::vector<Voxel> junctions = computeMedialAxisJunctions(mesh, patches);
+  junctions = computeMedialAxisJunctions(mesh, patches);
   std::cout << "FOUND " << junctions.size() << " JUNCTIONS " << std::endl;
 
   MeshSaver tetMeshSaver(tetMesh, "patches.vtu");
@@ -54,17 +55,18 @@ int main(int argc, char *argv[]) {
   Voxel mid = mesh.bounds() / 2;
   for (Axis d = 0; d < DIMENSION; d++)
     mesh.cut(d, mid);
-  // mesh.cut(2, mesh.bounds() / 4);
 
-  // for (Region &r : mesh.regions)
-  //   std::cout << r << std::endl;
-  // std::cout << mesh.layerManagers[2] << std::endl;
+  for (Region &r : mesh.regions)
+    std::cout << r << std::endl;
+  std::cout << mesh.layerManagers[2] << std::endl;
   mesh.cut(0, mesh.bounds() / 7);
+  mesh.cut(2, mesh.bounds() / 4);
   // std::cout << mesh.layerManagers[2] << std::endl;
 
   std::vector<Voxel> corners;
   std::vector<int> pathIds(mesh.nbVoxel);
   std::fill(pathIds.begin(), pathIds.end(), 0);
+
 #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   saveDual("dual.vtu", mesh);

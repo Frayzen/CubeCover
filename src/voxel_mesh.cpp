@@ -6,6 +6,7 @@
 #include "utils.hpp"
 
 #include <Eigen/Eigen>
+#include <set>
 #include <unsupported/Eigen/CXX11/Tensor>
 
 #include <algorithm>
@@ -81,11 +82,11 @@ static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
   IntegerSign oldNormal = oldRegion.signedNormals[axis];
 
   if (oldNormal == UNDEFINED) {
-    oldRegion.signedNormals[axis] = NEGATIVE;
-    newRegion.signedNormals[axis] = POSITIVE;
+    oldRegion.signedNormals[axis] = POSITIVE;
+    newRegion.signedNormals[axis] = NEGATIVE;
   } else if (oldNormal == ZERO) {
     newRegion.signedNormals[axis] = ZERO;
-  } else if (oldNormal == NEGATIVE) {
+  } else if (oldNormal == POSITIVE) {
     newRegion.signedNormals[axis] = ZERO;
   } else {
     oldRegion.signedNormals[axis] = ZERO;
@@ -107,16 +108,24 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   }
   assert(cutLayer != NO_LAYER);
 
-  RegionLayerId newLayer = layerManagers[axis].prepareSplit(cutLayer);
-
-  std::vector<RegionId> newRegions;
-
   SliceId splittingSlice = origin[axis];
   size_t nbRegion = regions.size();
-  for (RegionId regionId = 0; regionId < nbRegion; regionId++) {
+  std::set<RegionId> cutRegions;
+  bool initialCuts = regions.size() < 8;
+  if (initialCuts)
+    for (size_t i = 0; i < regions.size(); i++)
+      cutRegions.insert(i);
+  else {
+    for (RegionId id :
+         layerManagers[axis].findCutRegions(initRegionId, origin[axis]))
+      cutRegions.insert(id);
+  }
+  std::cout << "CUTTING " << cutRegions.size() << " REGIONS " << std::endl;
+
+  RegionLayerId newLayer = layerManagers[axis].prepareSplit(cutLayer);
+  std::vector<RegionId> newRegions;
+  for (RegionId regionId : cutRegions) {
     Region &region = regions[regionId];
-    if (region.layerIds[axis] != cutLayer)
-      continue;
     bool alreadySplittedHere = region.startSlices[axis] == splittingSlice;
     assert(!alreadySplittedHere);
     assert(region.containsSlice(axis, splittingSlice));
@@ -127,8 +136,8 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
     newRegions.push_back(newRegionId);
 
     newRegion.layerIds[axis] = newLayer;
-    newRegion.startSlices[axis] = splittingSlice;
-    region.endSlices[axis] = splittingSlice;
+    region.startSlices[axis] = splittingSlice;
+    newRegion.endSlices[axis] = splittingSlice;
     newRegion.addCut(axis, splittingSlice);
     region.addCut(axis, splittingSlice);
     updateNormals(axis, region, newRegion);
