@@ -23,11 +23,11 @@ private:
 
   // A node here is a RegionLayerId
   VoxelMesh &mesh;
+  std::vector<TraversalCuts> regionToChildrenTraversalCuts;
 
 public:
   Graph childGraph;
   Graph parentGraph;
-  std::vector<TraversalCuts> regionToChildrenTraversalCuts;
   std::vector<std::vector<RegionId>> layerToRegions;
   AxisLayerManager(VoxelMesh &mesh, Axis axis)
       : mesh(mesh), axis(axis), childGraph(0), parentGraph(0) {};
@@ -40,6 +40,7 @@ public:
 
   bool isCutAllowed(RegionId id, SliceId slice) const;
   void updateTraversalCuts(RegionId regionId);
+  std::vector<RegionId> findCutRegions(RegionId region, SliceId slice);
 
   friend std::ostream &operator<<(std::ostream &os, const AxisLayerManager &m);
 };

@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
   Voxel mid = mesh.bounds() / 2;
   for (Axis d = 0; d < DIMENSION; d++)
     mesh.cut(d, mid);
-  mesh.cut(2, mesh.bounds() / 4);
+  // mesh.cut(2, mesh.bounds() / 4);
 
   // for (Region &r : mesh.regions)
   //   std::cout << r << std::endl;

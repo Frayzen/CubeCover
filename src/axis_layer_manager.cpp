@@ -1,6 +1,8 @@
 #include "axis_layer_manager.hpp"
 #include "ids.hpp"
 #include "voxel_mesh.hpp"
+#include <algorithm>
+#include <vector>
 
 RegionLayerId AxisLayerManager::prepareSplit(RegionLayerId layerId) {
   RegionLayerId newLayer = childGraph.createNode();
@@ -28,12 +30,10 @@ void AxisLayerManager::splitRegionFromAnotherAxis(RegionId splittedRegionId,
   regionToChildrenTraversalCuts.push_back({});
 }
 
-#include <algorithm>
-#include <vector>
-
 void AxisLayerManager::updateTraversalCuts(RegionId regionId) {
   const Axis nextAxis = (axis + 1) % DIMENSION;
   const Axis prevAxis = (axis + 2) % DIMENSION;
+  const Axis axisList[2] = {nextAxis, prevAxis};
 
   Region &region = mesh.regions[regionId];
 
@@ -43,49 +43,32 @@ void AxisLayerManager::updateTraversalCuts(RegionId regionId) {
   std::vector<std::array<bool, 2>> occupiedSlices(axisEnd - axisStart,
                                                   {false, false});
 
-  auto processAxis = [&](Axis otherAxis, size_t occupidSliceId) {
-    auto &manager = mesh.layerManagers[otherAxis];
+  auto processAxis = [&](size_t axisListId) {
+    const Axis otherAxis = axisList[axisListId];
+    const Axis remainingAxis = otherAxis == nextAxis ? prevAxis : nextAxis;
 
-    const RegionLayerId regionLayer = region.layerIds(otherAxis);
+    const SliceId oAxisEnd = region.endSlices(otherAxis);
+    const SliceId oAxisStart = region.startSlices(otherAxis);
 
-    for (RegionId adjacentId : manager.layerToRegions[regionLayer]) {
-      if (adjacentId == regionId)
-        continue;
+    for (RegionId adjacentId : mesh.getAdjacentRegions(regionId, otherAxis)) {
       Region &adjacent = mesh.regions[adjacentId];
-      bool isAdjacent = adjacent.layerIds[axis] == region.layerIds[axis];
-      if (!isAdjacent)
-        continue;
-
-      const Axis remainingAxis = otherAxis == nextAxis ? prevAxis : nextAxis;
-      SliceId face;
-      if (adjacent.endSlices(remainingAxis) ==
-          region.startSlices(remainingAxis)) {
-        face = adjacent.endSlices(remainingAxis) - 1;
-      } else if (adjacent.startSlices(remainingAxis) ==
-                 region.endSlices(remainingAxis)) {
-        face = adjacent.startSlices(remainingAxis);
-      } else
-        continue;
-
-      const SliceId tStart = std::max(region.startSlices(otherAxis),
-                                      adjacent.startSlices(otherAxis));
-
-      const SliceId tEnd =
-          std::min(region.endSlices(otherAxis), adjacent.endSlices(otherAxis));
-
-      const SliceId sStart = std::max(axisStart, adjacent.startSlices(axis));
-      const SliceId sEnd = std::min(axisEnd, adjacent.endSlices(axis));
-
-      for (SliceId s = sStart; s < sEnd; ++s) {
-        for (SliceId t = tStart; t < tEnd; ++t) {
-          Eigen::Vector3i voxel = Eigen::Vector3i::Zero();
-
-          voxel(axis) = s;
-          voxel(remainingAxis) = face;
-          voxel(otherAxis) = t;
-
+      const SliceId vStart = std::max(region.startSlices(remainingAxis),
+                                      adjacent.startSlices(remainingAxis));
+      const SliceId vEnd = std::min(region.endSlices(remainingAxis),
+                                    adjacent.endSlices(remainingAxis));
+      const SliceId uStart = std::max(axisStart, adjacent.startSlices(axis));
+      const SliceId uEnd = std::min(axisEnd, adjacent.endSlices(axis));
+      const SliceId face = adjacent.startSlices(otherAxis) == oAxisEnd
+                               ? oAxisEnd
+                               : oAxisStart - 1;
+      for (SliceId u = uStart; u < uEnd; ++u) {
+        Eigen::Vector3i voxel = Eigen::Vector3i::Zero();
+        voxel(axis) = u;
+        voxel(otherAxis) = face;
+        for (SliceId v = vStart; v < vEnd; ++v) {
+          voxel(remainingAxis) = v;
           if (mesh.voxels(voxel.x(), voxel.y(), voxel.z()) != NO_VOXEL) {
-            occupiedSlices[s - axisStart][occupidSliceId] = true;
+            occupiedSlices[u - axisStart][axisListId] = true;
             break;
           }
         }
@@ -93,8 +76,8 @@ void AxisLayerManager::updateTraversalCuts(RegionId regionId) {
     }
   };
 
-  processAxis(nextAxis, 0);
-  processAxis(prevAxis, 1);
+  processAxis(0);
+  processAxis(1);
 
   TraversalCuts cuts;
 
@@ -155,3 +138,27 @@ bool AxisLayerManager::isCutAllowed(RegionId regionId, SliceId slice) const {
   }
   return false;
 };
+
+std::vector<RegionId> AxisLayerManager::findCutRegions(RegionId regionId,
+                                                       SliceId slice) {
+  // std::vector<RegionId> res;
+  // bool hasAccessibleParent;
+  // do {
+  //   hasAccessibleParent = false;
+  //   res.push_back(regionId);
+  //   Region &region = mesh.regions[regionId];
+  //   for (const TraversalCut &cut : regionToChildrenTraversalCuts[regionId])
+  //     if (cut.contains(slice)) {
+  //       hasAccessibleParent = true;
+  //       break;
+  //     }
+  //   if (hasAccessibleParent) {
+  //     RegionLayerId layerId = region.layerIds[axis];
+  //     RegionLayerId parent = NO_LAYER;
+  //     for (RegionLayerId parents : parentGraph[layerId]) {
+  //       if (getAdjacentRegions)
+  //     }
+  //   }
+  // } while (hasAccessibleParent);
+  return {};
+}

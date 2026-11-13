@@ -145,13 +145,6 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
 
   Region &initRegion = regions[initRegionId];
 
-  // for (RegionId updateId : layerManagers[axis].layerToRegions[newLayer])
-  //   layerManagers[axis].updateTraversalCuts(updateId);
-  // for (Axis a = 0; a < DIMENSION; a++) {
-  //   AxisLayerManager &lm = layerManagers[a];
-  //   for (RegionId updateId : lm.layerToRegions[initRegion.layerIds[a]])
-  //     lm.updateTraversalCuts(updateId);
-  // }
   for (Axis a = 0; a < DIMENSION; a++) {
     AxisLayerManager &lm = layerManagers[a];
     for (RegionLayerId layerId = 0; layerId < lm.layerToRegions.size();
@@ -406,5 +399,24 @@ std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
     }
   }
 
+  return res;
+}
+
+std::vector<RegionId> VoxelMesh::getAdjacentRegions(RegionId regionId,
+                                                    Axis axis) {
+  std::vector<RegionId> res;
+  Axis nextAxis = (axis + 1) % DIMENSION;
+  Region &region = regions[regionId];
+  auto &manager = layerManagers[nextAxis];
+  const RegionLayerId regionLayer = region.layerIds(nextAxis);
+  for (RegionId adjacentId : manager.layerToRegions[regionLayer]) {
+    if (adjacentId == regionId)
+      continue;
+    Region &candidate = regions[adjacentId];
+    bool isAdjacent = candidate.endSlices(axis) == region.startSlices(axis);
+    isAdjacent |= candidate.startSlices(axis) == region.endSlices(axis);
+    if (isAdjacent)
+      res.push_back(adjacentId);
+  }
   return res;
 }
