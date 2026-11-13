@@ -24,11 +24,10 @@ private:
   // A node here is a RegionLayerId
   VoxelMesh &mesh;
 
-  std::vector<TraversalCuts> regionToChildrenTraversalCuts;
-
 public:
   Graph childGraph;
   Graph parentGraph;
+  std::vector<TraversalCuts> regionToChildrenTraversalCuts;
   std::vector<std::vector<RegionId>> layerToRegions;
   AxisLayerManager(VoxelMesh &mesh, Axis axis)
       : mesh(mesh), axis(axis), childGraph(0), parentGraph(0) {};

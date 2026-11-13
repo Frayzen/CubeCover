@@ -201,7 +201,6 @@ void VoxelMesh::buildMesh() {
   for (Axis d = 0; d < DIMENSION; d++) {
     initialRegion.startSlices[d] = 0;
     initialRegion.endSlices[d] = dimensions[d];
-    initialRegion.cutableRanges[d] = std::make_pair(0, dimensions[d]);
   }
   for (Axis d = 0; d < DIMENSION; d++)
     layerManagers[d].initialize(initialRegion);
@@ -284,6 +283,24 @@ std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
   const std::array<Voxel, 6> directions = {Voxel(1, 0, 0), Voxel(-1, 0, 0),
                                            Voxel(0, 1, 0), Voxel(0, -1, 0),
                                            Voxel(0, 0, 1), Voxel(0, 0, -1)};
+  auto getNeighbours = [&](Voxel v) {
+    std::vector<VoxelId> res;
+    for (const Voxel &dir : directions) {
+      const Voxel next = v + dir;
+
+      if ((next.array() < 0).any() ||
+          (next.array() >= dimensions.array()).any()) {
+        continue;
+      }
+
+      const VoxelId nextId = getId(next);
+
+      if (nextId == INVALID_VOXEL_ID)
+        continue;
+      res.push_back(nextId);
+    }
+    return res;
+  };
 
   VoxelId startId = getId(start);
   VoxelId endId = getId(end);
@@ -305,30 +322,20 @@ std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
 
     const Voxel v = getVoxel(current);
 
-    for (const Voxel &dir : directions) {
-
-      const Voxel next = v + dir;
-
-      if ((next.array() < 0).any() ||
-          (next.array() >= dimensions.array()).any()) {
-        continue;
-      }
-
-      const VoxelId nextId = getId(next);
-
-      if (nextId == INVALID_VOXEL_ID)
-        continue;
-
-      const double cost = 1.0 + distanceToAB(nextId);
+    for (const VoxelId &neighourId : getNeighbours(v)) {
+      const Voxel &neighbour = getVoxel(neighourId);
+      const double nbNeighbour = getNeighbours(neighbour).size();
+      const double cost = distanceToAB(neighourId) + nbNeighbour * nbNeighbour;
 
       const double newDistance = currentDistance + cost;
 
-      if (!distance.contains(nextId) || newDistance < distance[nextId]) {
+      if (!distance.contains(neighourId) ||
+          newDistance < distance[neighourId]) {
 
-        distance[nextId] = newDistance;
-        parent[nextId] = current;
+        distance[neighourId] = newDistance;
+        parent[neighourId] = current;
 
-        queue.push({newDistance, nextId});
+        queue.push({newDistance, neighourId});
       }
     }
   }
