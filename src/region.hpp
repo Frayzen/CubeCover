@@ -2,53 +2,45 @@
 #define REGION_HPP
 
 #include "ids.hpp"
+#include "region_interface.hpp"
+#include "region_iterator.hpp"
 #include "signed_axis.hpp"
 
 #include <array>
-#include <cstddef>
-#include <iterator>
 #include <ostream>
 #include <sys/types.h>
 
 class VoxelMesh;
+class RegionInterface;
 
 struct Region {
-  using Voxel = Eigen::Vector3<int>;
+  void updateBounds();
+  std::array<std::vector<RegionInterface>, DIMENSION> children;
+  std::array<std::vector<RegionInterface>, DIMENSION> parents;
 
-  class RegionIterator {
-  public:
-    using iterator_category = std::forward_iterator_tag;
-    using value_type = Voxel;
-    using difference_type = std::ptrdiff_t;
-    using pointer = void;
-    using reference = Voxel;
+  using TraversalFn = std::function<bool(Region &, RegionInterface &)>;
+  using ProcessingFn = std::function<bool(Region &)>;
 
-    RegionIterator(const Region *region, bool atEnd = false);
-
-    Voxel operator*() const;
-
-    RegionIterator &operator++();
-
-    RegionIterator operator++(int) {
-      RegionIterator copy = *this;
-      ++(*this);
-      return copy;
-    }
-
-    bool operator==(const RegionIterator &other) const;
-    bool operator!=(const RegionIterator &other) const {
-      return !(*this == other);
-    }
-
-  private:
-    const Region *region_;
-    int x_ = 0;
-    int y_ = 0;
-    int z_ = 0;
-    bool atEnd_ = true;
-
-    void advanceToOccupied();
+  void traverseChildren(const TraversalFn &function,
+                        const std::array<bool, DIMENSION> &axisMask,
+                        const ProcessingFn &processingFn = nullptr);
+  void traverseChildren(const TraversalFn &function, const Axis a) {
+    std::array<bool, DIMENSION> axisMask{};
+    axisMask[a] = true;
+    traverseChildren(function, axisMask);
   };
+  void traverseParents(const TraversalFn &function,
+                       const std::array<bool, DIMENSION> &axisMask,
+                       const ProcessingFn &processingFn = nullptr);
+  void traverseParents(const TraversalFn &function, const Axis a) {
+    std::array<bool, DIMENSION> axisMask{};
+    axisMask[a] = true;
+    traverseParents(function, axisMask);
+  };
+
+  RegionId id;
+
+  using Voxel = Eigen::Vector3<int>;
 
   VoxelMesh *meshPtr;
   Eigen::Vector3<SliceId> startSlices;
@@ -57,23 +49,51 @@ struct Region {
   std::array<IntegerSign, DIMENSION> signedNormals = {ZERO, ZERO, ZERO};
   Eigen::Vector3<RegionLayerId> layerIds;
 
-  Region(VoxelMesh &mesh) : meshPtr(&mesh) {}
+  Region(RegionId id, VoxelMesh &mesh) : meshPtr(&mesh), id(id) {}
 
-  RegionIterator begin() const { return RegionIterator(this); }
-
-  RegionIterator end() const { return RegionIterator(this, true); }
+  RegionIterator begin() const;
+  RegionIterator end() const;
 
   bool containsSlice(Axis axis, SliceId sliceId) const;
   bool contains(const Voxel &v) const;
 
-  void addCut(Axis axis, SliceId splittingSlice);
+  void addCut(Region &newRegion, Axis axis, SliceId splittingSlice);
+  bool isCutAllowed(Axis axis, SliceId splittingSlice);
+
+  void updateAdjacency(std::vector<RegionId> oldRegionToNewRegion,
+                       const std::array<bool, DIMENSION> &axisMask);
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Region &r) {
-  os << "REGION : " << std::endl;
+  os << "REGION [" << r.id << "] : " << std::endl;
   os << "FROM :" << r.startSlices.transpose() << std::endl;
   os << "TO :" << r.endSlices.transpose() << std::endl;
-  os << "LAYERS :" << r.layerIds.transpose() << std::endl;
+  for (Axis d = 0; d < DIMENSION; d++) {
+    os << "CHILDREN [" << d << "] ";
+    for (RegionInterface i : r.children[d]) {
+      os << i.regionId << "( " << i.nextAxis << "[";
+      for (auto r : i.rangesNextAxis)
+        os << r.from << " - " << r.to << " ";
+      os << "] " << i.prevAxis << " [";
+      for (auto r : i.rangesPrevAxis)
+        os << r.from << " - " << r.to << " ";
+      os << "] )";
+    }
+    os << std::endl;
+  }
+  for (Axis d = 0; d < DIMENSION; d++) {
+    os << "PARENTS [" << d << "] ";
+    for (auto i : r.parents[d]) {
+      os << i.regionId << "( " << i.nextAxis << "[";
+      for (auto r : i.rangesNextAxis)
+        os << r.from << " - " << r.to << " ";
+      os << "] " << i.prevAxis << " [";
+      for (auto r : i.rangesPrevAxis)
+        os << r.from << " - " << r.to << " ";
+      os << "] )";
+    }
+    os << std::endl;
+  }
   return os;
 }
 

@@ -53,29 +53,35 @@ int main(int argc, char *argv[]) {
 #endif
 
   Voxel mid = mesh.bounds() / 2;
-  for (Axis d = 0; d < DIMENSION; d++)
+  for (Axis d = 0; d < DIMENSION; d++) {
     mesh.cut(d, mid);
+    std::cout << "============== CUT ==============" << std::endl;
+    for (Region &r : mesh.regions)
+      std::cout << r << std::endl;
+  }
 
-  for (Region &r : mesh.regions)
-    std::cout << r << std::endl;
-  std::cout << mesh.layerManagers[2] << std::endl;
-  mesh.cut(0, mesh.bounds() / 7);
-  mesh.cut(2, mesh.bounds() / 4);
+  // mesh.cut(0, mesh.bounds() / 7);
+  // mesh.cut(2, mesh.bounds() / 4);
+
+  // mesh.cut(0, (6 * mesh.bounds()) / 7);
+  // Voxel cut = (3 * mesh.bounds()) / 4;
+  // cut.z() -= 11;
+  // mesh.cut(2, cut);
   // std::cout << mesh.layerManagers[2] << std::endl;
 
   std::vector<Voxel> corners;
   std::vector<int> pathIds(mesh.nbVoxel);
   std::fill(pathIds.begin(), pathIds.end(), 0);
 
-#define COMPUTEPATHS
+// #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   saveDual("dual.vtu", mesh);
 
   for (Axis d = 0; d < DIMENSION; d++)
-    mesh.layerManagers[d].graph().exportDot("graph_dim" + std::to_string(d) +
-                                            ".dot");
+    // mesh.layerManagers[d].graph().exportDot("graph_dim" + std::to_string(d) +
+    //                                         ".dot");
 
-  corners = mesh.findCorners();
+    corners = mesh.findCorners();
   std::vector<std::vector<Voxel>> paths = mesh.findPaths();
 
   int pathId = 1;
@@ -124,9 +130,9 @@ int main(int argc, char *argv[]) {
       yLayer[id] = region.layerIds[1];
       zLayer[id] = region.layerIds[2];
 
-      allowedCutX[id] = mesh.layerManagers[0].isCutAllowed(regionId, v[0]);
-      allowedCutY[id] = mesh.layerManagers[1].isCutAllowed(regionId, v[1]);
-      allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(regionId, v[2]);
+      // allowedCutX[id] = mesh.layerManagers[0].isCutAllowed(regionId, v[0]);
+      // allowedCutY[id] = mesh.layerManagers[1].isCutAllowed(regionId, v[1]);
+      // allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(regionId, v[2]);
 
 #ifdef COMPUTEPATHS
       if (v == corners[regionId])

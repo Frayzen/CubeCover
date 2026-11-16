@@ -2,11 +2,11 @@
 #include "voxel_mesh.hpp"
 #include "constants.hpp"
 #include "ids.hpp"
+#include "region.hpp"
 #include "signed_axis.hpp"
 #include "utils.hpp"
 
 #include <Eigen/Eigen>
-#include <set>
 #include <unsupported/Eigen/CXX11/Tensor>
 
 #include <algorithm>
@@ -110,57 +110,55 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
 
   SliceId splittingSlice = origin[axis];
   size_t nbRegion = regions.size();
-  std::set<RegionId> cutRegions;
   bool initialCuts = regions.size() < 8;
-  if (initialCuts)
-    for (size_t i = 0; i < regions.size(); i++)
-      cutRegions.insert(i);
-  else {
-    for (RegionId id :
-         layerManagers[axis].findCutRegions(initRegionId, origin[axis]))
-      cutRegions.insert(id);
-  }
-  std::cout << "CUTTING " << cutRegions.size() << " REGIONS " << std::endl;
+  if (!initialCuts)
+    assert(regions[initRegionId].isCutAllowed(axis, splittingSlice));
+  std::cout << "START SLICE IS " << initRegionId << std::endl;
 
-  RegionLayerId newLayer = layerManagers[axis].prepareSplit(cutLayer);
-  std::vector<RegionId> newRegions;
-  for (RegionId regionId : cutRegions) {
-    Region &region = regions[regionId];
-    bool alreadySplittedHere = region.startSlices[axis] == splittingSlice;
-    assert(!alreadySplittedHere);
-    assert(region.containsSlice(axis, splittingSlice));
-    // Create region
-    Region newRegion(region);
-    RegionId newRegionId = regions.size();
+  std::array<bool, DIMENSION> mask = {true, true, true};
+  mask[axis] = false;
 
-    newRegions.push_back(newRegionId);
+  RegionId newInitRegionId = regions.size();
+  std::vector<RegionId> oldRegionToNewRegion(regions.size(), NO_REGION);
+  size_t nbCutRegion = 0;
+  auto cutFn = [&](Region &r, RegionInterface &interface) {
+    std::cout << "TRAVERSE INTERFACE " << std::endl;
+    std::cout << "RES FOR SLICE " << splittingSlice << " OF REGION " << r.id
+              << " IS " << interface.contains(axis, splittingSlice)
+              << " LEADING TO " << interface.regionId << std::endl;
+    return interface.contains(axis, splittingSlice);
+  };
+  std::vector<Region> createdRegions;
+  RegionId newRegionId = regions.size();
+  auto processFn = [&](Region &r) {
+    std::cout << "CALLING PROCESS ON " << r.id << std::endl;
+    if (oldRegionToNewRegion[r.id] != NO_REGION)
+      return true;
+    nbCutRegion++;
+    oldRegionToNewRegion[r.id] = newRegionId;
 
-    newRegion.layerIds[axis] = newLayer;
-    region.startSlices[axis] = splittingSlice;
-    newRegion.endSlices[axis] = splittingSlice;
-    newRegion.addCut(axis, splittingSlice);
-    region.addCut(axis, splittingSlice);
-    updateNormals(axis, region, newRegion);
+    Region &newRegion = createdRegions.emplace_back(r);
+    newRegion.id = newRegionId++;
+    newRegion.startSlices[axis] = splittingSlice;
+    r.endSlices[axis] = splittingSlice;
+    r.addCut(newRegion, axis, splittingSlice);
+    return true;
+  };
 
+  regions[initRegionId].traverseChildren(cutFn, mask, processFn);
+  std::cout << "CUTTING " << nbCutRegion << " CHILDREN " << std::endl;
+  nbCutRegion = 0;
+  regions[initRegionId].traverseParents(cutFn, mask, processFn);
+  std::cout << "CUTTING " << nbCutRegion << " PARENTS " << std::endl;
+
+  for (Region &newRegion : createdRegions) {
+    assert(newRegion.id == regions.size());
     regions.push_back(newRegion);
-
-    for (Axis a = 0; a < DIMENSION; a++) {
-      if (a != axis)
-        layerManagers[a].splitRegionFromAnotherAxis(regionId, newRegionId);
-    }
   }
-
-  layerManagers[axis].concretizeSplit(newLayer, newRegions);
-
-  Region &initRegion = regions[initRegionId];
-
-  for (Axis a = 0; a < DIMENSION; a++) {
-    AxisLayerManager &lm = layerManagers[a];
-    for (RegionLayerId layerId = 0; layerId < lm.layerToRegions.size();
-         layerId++)
-      for (RegionId updateId : lm.layerToRegions[layerId])
-        lm.updateTraversalCuts(updateId);
-  }
+  // update adjacency on the other axis
+  assert(newInitRegionId <= regions.size());
+  oldRegionToNewRegion.resize(regions.size(), NO_REGION);
+  regions[newInitRegionId].updateAdjacency(oldRegionToNewRegion, mask);
   return true;
 }
 
@@ -194,7 +192,7 @@ void VoxelMesh::buildMesh() {
     tetrahedraVoxels(v1, v2, v3, v4);
   }
 
-  Region initialRegion(*this);
+  Region initialRegion(0, *this);
 
   initialRegion.signedNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
 
@@ -204,8 +202,6 @@ void VoxelMesh::buildMesh() {
     initialRegion.startSlices[d] = 0;
     initialRegion.endSlices[d] = dimensions[d];
   }
-  for (Axis d = 0; d < DIMENSION; d++)
-    layerManagers[d].initialize(initialRegion);
 
   regions.push_back(initialRegion);
 }
@@ -408,24 +404,5 @@ std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
     }
   }
 
-  return res;
-}
-
-std::vector<RegionId> VoxelMesh::getAdjacentRegions(RegionId regionId,
-                                                    Axis axis) {
-  std::vector<RegionId> res;
-  Axis nextAxis = (axis + 1) % DIMENSION;
-  Region &region = regions[regionId];
-  auto &manager = layerManagers[nextAxis];
-  const RegionLayerId regionLayer = region.layerIds(nextAxis);
-  for (RegionId adjacentId : manager.layerToRegions[regionLayer]) {
-    if (adjacentId == regionId)
-      continue;
-    Region &candidate = regions[adjacentId];
-    bool isAdjacent = candidate.endSlices(axis) == region.startSlices(axis);
-    isAdjacent |= candidate.startSlices(axis) == region.endSlices(axis);
-    if (isAdjacent)
-      res.push_back(adjacentId);
-  }
   return res;
 }

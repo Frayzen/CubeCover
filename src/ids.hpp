@@ -7,6 +7,7 @@ using SliceId = int;
 
 const SliceId MAX_SLICE = std::numeric_limits<SliceId>::max();
 const SliceId MIN_SLICE = std::numeric_limits<SliceId>::min();
+const SliceId NO_SLICE = MIN_SLICE;
 
 using NodeId = size_t;
 using TetId = size_t;

@@ -1,7 +1,6 @@
 #ifndef VOXEL_MESH_HPP
 #define VOXEL_MESH_HPP
 
-#include "axis_layer_manager.hpp"
 #include "graph.hpp"
 #include "ids.hpp"
 #include "mesh_loader.hpp"
@@ -40,11 +39,6 @@ public:
   Eigen::Tensor<VoxelId, DIMENSION> voxels;
   std::vector<Voxel> idToVoxel;
 
-  std::array<AxisLayerManager, DIMENSION> layerManagers = {
-      AxisLayerManager(*this, 0),
-      AxisLayerManager(*this, 1),
-      AxisLayerManager(*this, 2),
-  };
   std::vector<Region> regions;
 
   void buildMesh();
@@ -72,8 +66,6 @@ public:
 
   VoxelId getId(const Voxel &v);
   Voxel getVoxel(VoxelId id) const;
-
-  std::vector<RegionId> getAdjacentRegions(RegionId regionId, Axis axis);
 };
 
 #endif
