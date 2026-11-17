@@ -1,6 +1,7 @@
 #include "region_interface.hpp"
 #include "region.hpp"
 #include "voxel_mesh.hpp"
+#include <ranges>
 void RegionInterface::updateRanges(Region &first, Region &second) {
   SliceId leftFace = NO_SLICE;
   SliceId rightFace = NO_SLICE;

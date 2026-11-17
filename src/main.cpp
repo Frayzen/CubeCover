@@ -55,18 +55,18 @@ int main(int argc, char *argv[]) {
   Voxel mid = mesh.bounds() / 2;
   for (Axis d = 0; d < DIMENSION; d++) {
     mesh.cut(d, mid);
-    std::cout << "============== CUT ==============" << std::endl;
-    for (Region &r : mesh.regions)
-      std::cout << r << std::endl;
+    // std::cout << "============== CUT ==============" << std::endl;
+    // for (Region &r : mesh.regions)
+    //   std::cout << r << std::endl;
   }
 
-  // mesh.cut(0, mesh.bounds() / 7);
-  // mesh.cut(2, mesh.bounds() / 4);
+  mesh.cut(0, mesh.bounds() / 7);
+  mesh.cut(2, mesh.bounds() / 4);
 
-  // mesh.cut(0, (6 * mesh.bounds()) / 7);
-  // Voxel cut = (3 * mesh.bounds()) / 4;
-  // cut.z() -= 11;
-  // mesh.cut(2, cut);
+  mesh.cut(0, (6 * mesh.bounds()) / 7);
+  Voxel cut = (3 * mesh.bounds()) / 4;
+  cut.z() -= 11;
+  mesh.cut(2, cut);
   // std::cout << mesh.layerManagers[2] << std::endl;
 
   std::vector<Voxel> corners;

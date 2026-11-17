@@ -5,6 +5,7 @@
 #include "ids.hpp"
 #include "mesh_loader.hpp"
 #include "region.hpp"
+#include "region_interface.hpp"
 #include "signed_axis.hpp"
 #include <Eigen/Dense>
 #include <Eigen/Eigen>
@@ -42,12 +43,14 @@ public:
   std::vector<Region> regions;
 
   void buildMesh();
-
   double voxelSize;
   Vertex origin;
   VoxelMesh(TetrahedralMesh &tetMesh) : tetMesh(tetMesh), voxelGraph(0) {
     buildMesh();
   }
+
+  bool findWay(Axis axis, SliceId sliceId, const RegionInterface &first,
+               const RegionInterface &second);
 
   // return true if the cut happened correctly
   // it could return false if a cut already happened on this slide for this axis

@@ -62,6 +62,8 @@ struct Region {
 
   void updateAdjacency(std::vector<RegionId> oldRegionToNewRegion,
                        const std::array<bool, DIMENSION> &axisMask);
+  std::vector<RegionInterface>
+  interfaces(const std::array<bool, DIMENSION> &axisMask);
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Region &r) {

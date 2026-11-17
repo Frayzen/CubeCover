@@ -5,6 +5,8 @@ class Region;
 
 #include "old/signed_axis.hpp"
 struct RegionInterface {
+
+  IntegerSign sign;
   Axis normal;
   Axis nextAxis;
   Axis prevAxis;
@@ -41,8 +43,9 @@ struct RegionInterface {
         return true;
     return false;
   }
-  RegionInterface(Axis normal, RegionId regionId)
-      : regionId(regionId), normal(normal), nextAxis((normal + 1) % DIMENSION),
+  RegionInterface(Axis normal, IntegerSign sign, RegionId regionId)
+      : regionId(regionId), normal(normal), sign(sign),
+        nextAxis((normal + 1) % DIMENSION),
         prevAxis((normal + 2) % DIMENSION) {};
   RegionId regionId;
 

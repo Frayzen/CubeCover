@@ -1,5 +1,6 @@
 #include "region.hpp"
 #include "ids.hpp"
+#include "region.hpp"
 #include "region_iterator.hpp"
 #include "voxel_mesh.hpp"
 #include <cmath>
@@ -25,10 +26,11 @@ bool Region::isCutAllowed(Axis axis, SliceId splittingSlice) {
     if (axis == d)
       continue;
     bool canCut = false;
-    for (RegionInterface &interface : children[axis])
+    for (RegionInterface &interface : children[d]) {
       if (interface.contains(axis, splittingSlice))
         canCut = true;
-    for (RegionInterface &interface : parents[axis])
+    }
+    for (RegionInterface &interface : parents[d])
       if (interface.contains(axis, splittingSlice))
         canCut = true;
     if (!canCut)
@@ -54,7 +56,7 @@ void Region::addCut(Region &newRegion, Axis axis, SliceId splittingSlice) {
   updateBounds();
   newRegion.updateBounds();
 
-  newRegion.parents[axis] = {RegionInterface(axis, id)};
+  newRegion.parents[axis] = {RegionInterface(axis, POSITIVE, id)};
   newRegion.parents[axis][0].updateRanges(*this, newRegion);
   newRegion.children[axis] = children[axis];
 
@@ -69,7 +71,7 @@ void Region::addCut(Region &newRegion, Axis axis, SliceId splittingSlice) {
     }
   }
 
-  children[axis] = {RegionInterface(axis, newRegion.id)};
+  children[axis] = {RegionInterface(axis, NEGATIVE, newRegion.id)};
   children[axis][0].updateRanges(*this, newRegion);
 }
 
@@ -115,4 +117,18 @@ void Region::updateAdjacency(std::vector<RegionId> oldRegionToNewRegion,
   };
   traverseChildren(adjFn, axisMask);
   traverseParents(adjFn, axisMask);
+}
+
+std::vector<RegionInterface>
+Region::interfaces(const std::array<bool, DIMENSION> &axisMask) {
+  std::vector<RegionInterface> res;
+  for (Axis d = 0; d < DIMENSION; d++) {
+    if (!axisMask[d])
+      continue;
+    for (RegionInterface &interface : children[d])
+      res.push_back(interface);
+    for (RegionInterface &interface : parents[d])
+      res.push_back(interface);
+  }
+  return res;
 }
