@@ -93,13 +93,6 @@ static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
   }
 }
 
-RegionId VoxelMesh::getRegion(const Voxel &v) {
-  for (Region &r : regions)
-    if (r.contains(v))
-      return r.id;
-  return NO_REGION;
-}
-
 Eigen::Vector2i VoxelMesh::getSliceSize(Axis axis) const {
   Eigen::Vector2i size;
   int j = 0;
@@ -125,12 +118,12 @@ Eigen::Vector2i VoxelMesh::getCoordsInSlice(Axis axis,
   return coords;
 }
 
-std::vector<RegionId> VoxelMesh::computeCutRegions(Axis axis, Voxel origin) {
+std::pair<FlagMatrix, std::vector<RegionId>>
+VoxelMesh::computeCutRegions(Axis axis, Voxel origin) {
   std::vector<bool> visitedRegions(regions.size(), false);
   std::vector<RegionId> encounteredRegions;
 
-  Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> visited(
-      getSliceSize(axis).x(), getSliceSize(axis).y());
+  FlagMatrix visited(getSliceSize(axis).x(), getSliceSize(axis).y());
   visited.setConstant(false);
 
   std::queue<Voxel> queue;
@@ -139,8 +132,6 @@ std::vector<RegionId> VoxelMesh::computeCutRegions(Axis axis, Voxel origin) {
   Eigen::Vector2i originCoords = getCoordsInSlice(axis, origin);
   visited(originCoords.x(), originCoords.y()) = true;
 
-  RegionId currentRegionId = getRegion(origin);
-
   while (!queue.empty()) {
     Voxel voxel = queue.front();
     queue.pop();
@@ -148,14 +139,11 @@ std::vector<RegionId> VoxelMesh::computeCutRegions(Axis axis, Voxel origin) {
     if (getId(voxel) == NO_VOXEL)
       continue;
 
-    if (!regions[currentRegionId].contains(voxel))
-      currentRegionId = getRegion(voxel);
-
+    RegionId currentRegionId = voxelToRegion(voxel.x(), voxel.y(), voxel.z());
     if (!visitedRegions[currentRegionId]) {
       visitedRegions[currentRegionId] = true;
       encounteredRegions.push_back(currentRegionId);
     }
-
     for (Axis a = 0; a < DIMENSION; ++a) {
       if (a == axis)
         continue;
@@ -181,7 +169,7 @@ std::vector<RegionId> VoxelMesh::computeCutRegions(Axis axis, Voxel origin) {
     }
   }
 
-  return encounteredRegions;
+  return {visited, encounteredRegions};
 }
 
 bool VoxelMesh::cut(Axis axis, Voxel origin) {
@@ -190,16 +178,27 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   std::array<bool, DIMENSION> mask = {true, true, true};
   mask[axis] = false;
   std::vector<RegionId> oldRegionToNewRegion(regions.size(), NO_REGION);
-  auto cutRegionIds = computeCutRegions(axis, origin);
+  auto [flagMatrix, cutRegionIds] = computeCutRegions(axis, origin);
+  std::cout << "SPLITTING " << cutRegionIds.size() << " REGIONS " << std::endl;
   RegionId firstNewRegion = regions.size();
   for (RegionId &cutRegionId : cutRegionIds) {
     RegionId newRegionId = regions.size();
     Region &newRegion = regions.emplace_back(regions[cutRegionId]);
     Region &r = regions[cutRegionId];
+
     oldRegionToNewRegion[r.id] = newRegionId;
     newRegion.id = newRegionId;
-    newRegion.startSlices[axis] = splittingSlice;
-    r.endSlices[axis] = splittingSlice;
+
+    auto [newVoxels, rVoxels] =
+        r.splitByFlagMatrix(flagMatrix, splittingSlice, axis);
+    std::cout << "OLD VOXEL AMOUNT " << r.voxels.size() << std::endl;
+    std::cout << "INSIDE VOXEL AMOUNT " << newVoxels.size() << std::endl;
+    std::cout << "OUTSIDE VOXEL AMOUNT " << rVoxels.size() << std::endl;
+
+    for (Voxel v : newVoxels)
+      voxelToRegion(v.x(), v.y(), v.z()) = newRegionId;
+    r.voxels = rVoxels;
+    newRegion.voxels = newVoxels;
     r.addCut(newRegion, axis, splittingSlice);
   }
   oldRegionToNewRegion.resize(regions.size(), NO_REGION);
@@ -226,6 +225,7 @@ void VoxelMesh::buildMesh() {
   const Voxel dimensions = (diff / voxelSize).array().floor().cast<int>() + 1;
 
   voxels.resize(dimensions.x(), dimensions.y(), dimensions.z());
+  voxelToRegion.resize(dimensions.x(), dimensions.y(), dimensions.z());
 
   voxels.setConstant(NO_VOXEL);
 
@@ -242,13 +242,20 @@ void VoxelMesh::buildMesh() {
   Region initialRegion(0, *this);
 
   initialRegion.signedNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
-
   initialRegion.layerIds = {0, 0, 0};
 
   for (Axis d = 0; d < DIMENSION; d++) {
     initialRegion.startSlices[d] = 0;
     initialRegion.endSlices[d] = dimensions[d];
   }
+
+  for (size_t i = 0; i < voxels.dimension(0); i++)
+    for (size_t j = 0; j < voxels.dimension(1); j++)
+      for (size_t k = 0; k < voxels.dimension(2); k++)
+        if (voxels(i, j, k) != NO_VOXEL) {
+          initialRegion.voxels.push_back(Voxel(i, j, k));
+          voxelToRegion(i, j, k) = 0;
+        }
 
   regions.push_back(initialRegion);
 }

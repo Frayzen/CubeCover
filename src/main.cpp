@@ -54,13 +54,14 @@ int main(int argc, char *argv[]) {
 
   Voxel mid = mesh.bounds() / 2;
   for (Axis d = 0; d < DIMENSION; d++) {
-    mesh.cut(d, mid);
+    if (d == 0)
+      mesh.cut(d, mid);
   }
 
-  mesh.cut(0, mesh.bounds() / 7);
-  mesh.cut(2, mesh.bounds() / 4);
+  // mesh.cut(0, mesh.bounds() / 7);
+  // mesh.cut(0, (6 * mesh.bounds()) / 7);
+  // mesh.cut(2, mesh.bounds() / 4);
 
-  mesh.cut(0, (6 * mesh.bounds()) / 7);
   Voxel cut = (3 * mesh.bounds()) / 4;
   cut.z() -= 11;
   mesh.cut(2, cut);
@@ -113,30 +114,33 @@ int main(int argc, char *argv[]) {
   std::vector<double> yLayer(mesh.nbVoxel);
   std::vector<double> zLayer(mesh.nbVoxel);
   RegionId regionId = 0;
-  for (Region &region : mesh.regions) {
-    RegionLayerId layerId = region.layerIds[2];
-    for (Voxel v : region) {
-      VoxelId id = mesh.getId(v);
-      colors[id] = regionId;
-      xNormal[id] = getIntegerSignValue(region.signedNormals[0]);
-      yNormal[id] = getIntegerSignValue(region.signedNormals[1]);
-      zNormal[id] = getIntegerSignValue(region.signedNormals[2]);
+  for (size_t i = 0; i < mesh.voxels.dimension(0); i++) {
+    for (size_t j = 0; j < mesh.voxels.dimension(1); j++) {
+      for (size_t k = 0; k < mesh.voxels.dimension(2); k++) {
+        Voxel v(i, j, k);
+        VoxelId id = mesh.getId(v);
+        if (id == NO_VOXEL)
+          continue;
+        Region &region = mesh.regions[mesh.voxelToRegion(i, j, k)];
+        colors[id] = regionId;
+        xNormal[id] = getIntegerSignValue(region.signedNormals[0]);
+        yNormal[id] = getIntegerSignValue(region.signedNormals[1]);
+        zNormal[id] = getIntegerSignValue(region.signedNormals[2]);
 
-      xLayer[id] = region.layerIds[0];
-      yLayer[id] = region.layerIds[1];
-      zLayer[id] = region.layerIds[2];
+        xLayer[id] = region.layerIds[0];
+        yLayer[id] = region.layerIds[1];
+        zLayer[id] = region.layerIds[2];
 
-      // allowedCutX[id] = mesh.layerManagers[0].isCutAllowed(regionId, v[0]);
-      // allowedCutY[id] = mesh.layerManagers[1].isCutAllowed(regionId, v[1]);
-      // allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(regionId, v[2]);
+        // allowedCutX[id] = mesh.layerManagers[0].isCutAllowed(regionId, v[0]);
+        // allowedCutY[id] = mesh.layerManagers[1].isCutAllowed(regionId, v[1]);
+        // allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(regionId, v[2]);
 
 #ifdef COMPUTEPATHS
-      if (v == corners[regionId])
-        cornersFlag[id] = true;
+        if (v == corners[regionId])
+          cornersFlag[id] = true;
 #endif
+      }
     }
-
-    regionId++;
   }
 
   saver.addField("region", colors);

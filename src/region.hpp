@@ -3,7 +3,6 @@
 
 #include "ids.hpp"
 #include "region_interface.hpp"
-#include "region_iterator.hpp"
 #include "signed_axis.hpp"
 
 #include <array>
@@ -31,14 +30,6 @@ struct Region {
     axisMask[a] = true;
     traverseChildren(function, axisMask);
   };
-  void traverse(const TraversalFn &function,
-                const std::array<bool, DIMENSION> &axisMask,
-                const ProcessingFn &processingFn = nullptr);
-  void traverse(const TraversalFn &function, const Axis a) {
-    std::array<bool, DIMENSION> axisMask{};
-    axisMask[a] = true;
-    traverse(function, axisMask);
-  };
   void traverseParents(const TraversalFn &function,
                        const std::array<bool, DIMENSION> &axisMask,
                        const ProcessingFn &processingFn = nullptr);
@@ -53,19 +44,23 @@ struct Region {
   using Voxel = Eigen::Vector3<int>;
 
   VoxelMesh *meshPtr;
+
+  std::vector<Voxel> voxels;
   Eigen::Vector3<SliceId> startSlices;
   Eigen::Vector3<SliceId> endSlices;
 
   std::array<IntegerSign, DIMENSION> signedNormals = {ZERO, ZERO, ZERO};
   Eigen::Vector3<RegionLayerId> layerIds;
 
+  std::pair<std::vector<Voxel>, std::vector<Voxel>>
+  splitByFlagMatrix(const FlagMatrix &flagMatrix, SliceId sliceId,
+                    Axis axis) const;
   Region(RegionId id, VoxelMesh &mesh) : meshPtr(&mesh), id(id) {}
 
-  RegionIterator begin() const;
-  RegionIterator end() const;
+  auto begin() const { return voxels.begin(); };
+  auto end() const { return voxels.end(); };
 
   bool containsSlice(Axis axis, SliceId sliceId) const;
-  bool contains(const Voxel &v) const;
 
   void addCut(Region &newRegion, Axis axis, SliceId splittingSlice);
 
@@ -75,7 +70,7 @@ struct Region {
   interfaces(const std::array<bool, DIMENSION> &axisMask);
 
   SliceMatrix getSliceMatrix(Axis a, SliceId sliceId);
-  Eigen::Vector2i getCoordsInSlice(Axis a, const Voxel &v);
+  Eigen::Vector2i getCoordsInSlice(Axis a, const Voxel &v) const;
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Region &r) {

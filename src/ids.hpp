@@ -29,3 +29,5 @@ using Vertex = Eigen::Vector3d;
 using Voxel = Eigen::Vector3<SliceId>;
 using ZoneId = size_t;
 using LoopSegmentId = size_t;
+
+using FlagMatrix = Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic>;
