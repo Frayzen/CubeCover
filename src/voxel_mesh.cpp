@@ -93,201 +93,119 @@ static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
   }
 }
 
-enum Direction { TOP, BOT, LEFT, RIGHT };
-
-static bool
-findPathInMatrix(Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> &mat,
-                 const Direction &from, const Direction &to) {
-  constexpr int N = 2;
-
-  auto getEdgeCells = [](Direction dir) -> std::array<Eigen::Vector2i, 2> {
-    switch (dir) {
-    case TOP:
-      return {Eigen::Vector2i(0, 0), Eigen::Vector2i(0, 1)};
-    case BOT:
-      return {Eigen::Vector2i(1, 0), Eigen::Vector2i(1, 1)};
-    case LEFT:
-      return {Eigen::Vector2i(0, 0), Eigen::Vector2i(1, 0)};
-    case RIGHT:
-      return {Eigen::Vector2i(0, 1), Eigen::Vector2i(1, 1)};
-    }
-    return {};
-  };
-
-  auto starts = getEdgeCells(from);
-  auto targets = getEdgeCells(to);
-
-  std::array<std::array<bool, N>, N> visited{};
-
-  std::queue<Eigen::Vector2i> queue;
-
-  for (const auto &p : starts) {
-    if (mat(p.x(), p.y())) {
-      queue.push(p);
-      visited[p.x()][p.y()] = true;
-    }
-  }
-
-  while (!queue.empty()) {
-    Eigen::Vector2i p = queue.front();
-    queue.pop();
-
-    for (const auto &target : targets) {
-      if (p == target) {
-        return true;
-      }
-    }
-
-    constexpr int dx[] = {-1, 1, 0, 0};
-    constexpr int dy[] = {0, 0, -1, 1};
-
-    for (int i = 0; i < 4; ++i) {
-      int x = p.x() + dx[i];
-      int y = p.y() + dy[i];
-
-      if (x < 0 || x >= N || y < 0 || y >= N)
-        continue;
-
-      if (!visited[x][y] && mat(x, y)) {
-        visited[x][y] = true;
-        queue.emplace(x, y);
-      }
-    }
-  }
-
-  return false;
+RegionId VoxelMesh::getRegion(const Voxel &v) {
+  for (Region &r : regions)
+    if (r.contains(v))
+      return r.id;
+  return NO_REGION;
 }
 
-bool VoxelMesh::findWay(Axis axis, SliceId sliceId,
-                        const RegionInterface &first,
-                        const RegionInterface &second) {
-  assert(axis != first.normal);
-  assert(axis != second.normal);
+Eigen::Vector2i VoxelMesh::getSliceSize(Axis axis) const {
+  Eigen::Vector2i size;
+  int j = 0;
 
-  Region &targetRegion = regions.at(first.regionId);
-
-  Axis uAxis = second.normal;
-  Axis vAxis;
-
-  if (first.normal == second.normal) {
-    vAxis = axis == first.nextAxis ? first.prevAxis : first.nextAxis;
-  } else {
-    vAxis = first.normal;
+  for (int i = 0; i < DIMENSION; ++i) {
+    if (i != axis)
+      size[j++] = voxels.dimension(i);
   }
 
-  SliceId startU = targetRegion.startSlices[uAxis];
-  SliceId endU = targetRegion.endSlices[uAxis];
+  return size;
+}
 
-  SliceId startV = targetRegion.startSlices[vAxis];
-  SliceId endV = targetRegion.endSlices[vAxis];
+Eigen::Vector2i VoxelMesh::getCoordsInSlice(Axis axis,
+                                            const Voxel &voxel) const {
+  Eigen::Vector2i coords;
+  int j = 0;
 
-  Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> flags(endU - startU,
-                                                            endV - startV);
+  for (int i = 0; i < DIMENSION; ++i) {
+    if (i != axis)
+      coords[j++] = voxel[i];
+  }
 
-  Voxel voxel;
-  voxel(axis) = sliceId;
+  return coords;
+}
 
-  for (SliceId u = startU; u < endU; ++u) {
-    voxel(uAxis) = u;
+std::vector<RegionId> VoxelMesh::computeCutRegions(Axis axis, Voxel origin) {
+  std::vector<bool> visitedRegions(regions.size(), false);
+  std::vector<RegionId> encounteredRegions;
 
-    for (SliceId v = startV; v < endV; ++v) {
-      voxel(vAxis) = v;
+  Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> visited(
+      getSliceSize(axis).x(), getSliceSize(axis).y());
+  visited.setConstant(false);
 
-      flags(u - startU, v - startV) = getId(voxel) != NO_VOXEL;
+  std::queue<Voxel> queue;
+  queue.push(origin);
+
+  Eigen::Vector2i originCoords = getCoordsInSlice(axis, origin);
+  visited(originCoords.x(), originCoords.y()) = true;
+
+  RegionId currentRegionId = getRegion(origin);
+
+  while (!queue.empty()) {
+    Voxel voxel = queue.front();
+    queue.pop();
+
+    if (getId(voxel) == NO_VOXEL)
+      continue;
+
+    if (!regions[currentRegionId].contains(voxel))
+      currentRegionId = getRegion(voxel);
+
+    if (!visitedRegions[currentRegionId]) {
+      visitedRegions[currentRegionId] = true;
+      encounteredRegions.push_back(currentRegionId);
+    }
+
+    for (Axis a = 0; a < DIMENSION; ++a) {
+      if (a == axis)
+        continue;
+
+      for (int direction : {-1, 1}) {
+        Voxel neighbor = voxel;
+        neighbor[a] += direction;
+
+        Eigen::Vector2i coords = getCoordsInSlice(axis, neighbor);
+
+        if (coords.x() < 0 || coords.y() < 0 || coords.x() >= visited.rows() ||
+            coords.y() >= visited.cols())
+          continue;
+
+        if (visited(coords.x(), coords.y()))
+          continue;
+
+        visited(coords.x(), coords.y()) = true;
+
+        if (getId(neighbor) != NO_VOXEL)
+          queue.push(neighbor);
+      }
     }
   }
 
-  auto toDirection = [](const RegionInterface &interface, Axis rowAxis,
-                        Axis colAxis) -> Direction {
-    if (interface.normal == rowAxis) {
-      return interface.sign == POSITIVE ? TOP : BOT;
-    }
-
-    if (interface.normal == colAxis) {
-      return interface.sign == POSITIVE ? LEFT : RIGHT;
-    }
-
-    // Interface normal must correspond to one of the matrix axes.
-    assert(false);
-    return TOP;
-  };
-
-  Direction from = toDirection(second, uAxis, vAxis);
-  Direction to = toDirection(first, uAxis, vAxis);
-
-  return findPathInMatrix(flags, from, to);
+  return encounteredRegions;
 }
 
 bool VoxelMesh::cut(Axis axis, Voxel origin) {
   assert(getId(origin) != NO_VOXEL);
-
-  RegionLayerId cutLayer = NO_LAYER;
-  RegionId initRegionId = NO_REGION;
-  for (RegionId rId = 0; rId < regions.size(); rId++) {
-    Region &r = regions[rId];
-    if (r.contains(origin)) {
-      cutLayer = r.layerIds[axis];
-      initRegionId = rId;
-      break;
-    }
-  }
-  assert(cutLayer != NO_LAYER);
-
   SliceId splittingSlice = origin[axis];
-  size_t nbRegion = regions.size();
-  bool initialCuts = regions.size() < 8;
-  if (!initialCuts)
-    assert(regions[initRegionId].isCutAllowed(axis, splittingSlice));
-  // std::cout << "START SLICE IS " << initRegionId << std::endl;
-
   std::array<bool, DIMENSION> mask = {true, true, true};
   mask[axis] = false;
-
-  RegionId newInitRegionId = regions.size();
   std::vector<RegionId> oldRegionToNewRegion(regions.size(), NO_REGION);
-  size_t nbCutRegion = 0;
-  auto cutFn = [&](Region &r, RegionInterface &interface) {
-    if (!interface.contains(axis, splittingSlice))
-      return false;
-    for (const RegionInterface &otherInterface : r.interfaces(mask)) {
-      if (otherInterface.regionId == r.id)
-        continue;
-      if (findWay(axis, splittingSlice, interface, otherInterface))
-        return true;
-    }
-    return false;
-  };
-  std::vector<Region> createdRegions;
-  RegionId newRegionId = regions.size();
-  auto processFn = [&](Region &r) {
-    // std::cout << "CALLING PROCESS ON " << r.id << std::endl;
-    if (oldRegionToNewRegion[r.id] != NO_REGION)
-      return true;
-    nbCutRegion++;
+  auto cutRegionIds = computeCutRegions(axis, origin);
+  RegionId firstNewRegion = regions.size();
+  for (RegionId &cutRegionId : cutRegionIds) {
+    RegionId newRegionId = regions.size();
+    Region &newRegion = regions.emplace_back(regions[cutRegionId]);
+    Region &r = regions[cutRegionId];
     oldRegionToNewRegion[r.id] = newRegionId;
-
-    Region &newRegion = createdRegions.emplace_back(r);
-    newRegion.id = newRegionId++;
+    newRegion.id = newRegionId;
     newRegion.startSlices[axis] = splittingSlice;
     r.endSlices[axis] = splittingSlice;
     r.addCut(newRegion, axis, splittingSlice);
-    return true;
-  };
-
-  regions[initRegionId].traverseChildren(cutFn, mask, processFn);
-  // std::cout << "CUTTING " << nbCutRegion << " CHILDREN " << std::endl;
-  nbCutRegion = 0;
-  regions[initRegionId].traverseParents(cutFn, mask, processFn);
-  // std::cout << "CUTTING " << nbCutRegion << " PARENTS " << std::endl;
-
-  for (Region &newRegion : createdRegions) {
-    assert(newRegion.id == regions.size());
-    regions.push_back(newRegion);
   }
-  // update adjacency on the other axis
-  assert(newInitRegionId <= regions.size());
   oldRegionToNewRegion.resize(regions.size(), NO_REGION);
-  regions[newInitRegionId].updateAdjacency(oldRegionToNewRegion, mask);
+  for (RegionId rId = firstNewRegion; rId < regions.size(); rId++) {
+    regions[rId].updateAdjacency(oldRegionToNewRegion, mask);
+  }
   return true;
 }
 

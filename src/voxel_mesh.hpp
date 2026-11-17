@@ -33,6 +33,12 @@ private:
                                               std::vector<RegionId> regions);
   Graph voxelGraph;
 
+  RegionId getRegion(const Voxel &v);
+
+  Eigen::Vector2i getSliceSize(Axis axis) const;
+
+  Eigen::Vector2i getCoordsInSlice(Axis axis, const Voxel &voxel) const;
+
 public:
   TetrahedralMesh &tetMesh;
   size_t nbVoxel;
@@ -51,6 +57,8 @@ public:
 
   bool findWay(Axis axis, SliceId sliceId, const RegionInterface &first,
                const RegionInterface &second);
+
+  std::vector<RegionId> computeCutRegions(Axis axis, Voxel origin);
 
   // return true if the cut happened correctly
   // it could return false if a cut already happened on this slide for this axis

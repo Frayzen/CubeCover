@@ -55,9 +55,6 @@ int main(int argc, char *argv[]) {
   Voxel mid = mesh.bounds() / 2;
   for (Axis d = 0; d < DIMENSION; d++) {
     mesh.cut(d, mid);
-    // std::cout << "============== CUT ==============" << std::endl;
-    // for (Region &r : mesh.regions)
-    //   std::cout << r << std::endl;
   }
 
   mesh.cut(0, mesh.bounds() / 7);
@@ -67,15 +64,14 @@ int main(int argc, char *argv[]) {
   Voxel cut = (3 * mesh.bounds()) / 4;
   cut.z() -= 11;
   mesh.cut(2, cut);
-  // std::cout << mesh.layerManagers[2] << std::endl;
 
   std::vector<Voxel> corners;
   std::vector<int> pathIds(mesh.nbVoxel);
   std::fill(pathIds.begin(), pathIds.end(), 0);
 
+  saveDual("dual.vtu", mesh);
 // #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
-  saveDual("dual.vtu", mesh);
 
   for (Axis d = 0; d < DIMENSION; d++)
     // mesh.layerManagers[d].graph().exportDot("graph_dim" + std::to_string(d) +

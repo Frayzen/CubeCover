@@ -1,5 +1,5 @@
 #include "junctions.hpp"
-#include "old/signed_axis.hpp"
+#include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
 #include <algorithm>
 #include <cassert>

@@ -13,6 +13,8 @@
 class VoxelMesh;
 class RegionInterface;
 
+using SliceMatrix = Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic>;
+
 struct Region {
   void updateBounds();
   std::array<std::vector<RegionInterface>, DIMENSION> children;
@@ -28,6 +30,14 @@ struct Region {
     std::array<bool, DIMENSION> axisMask{};
     axisMask[a] = true;
     traverseChildren(function, axisMask);
+  };
+  void traverse(const TraversalFn &function,
+                const std::array<bool, DIMENSION> &axisMask,
+                const ProcessingFn &processingFn = nullptr);
+  void traverse(const TraversalFn &function, const Axis a) {
+    std::array<bool, DIMENSION> axisMask{};
+    axisMask[a] = true;
+    traverse(function, axisMask);
   };
   void traverseParents(const TraversalFn &function,
                        const std::array<bool, DIMENSION> &axisMask,
@@ -58,12 +68,14 @@ struct Region {
   bool contains(const Voxel &v) const;
 
   void addCut(Region &newRegion, Axis axis, SliceId splittingSlice);
-  bool isCutAllowed(Axis axis, SliceId splittingSlice);
 
   void updateAdjacency(std::vector<RegionId> oldRegionToNewRegion,
                        const std::array<bool, DIMENSION> &axisMask);
   std::vector<RegionInterface>
   interfaces(const std::array<bool, DIMENSION> &axisMask);
+
+  SliceMatrix getSliceMatrix(Axis a, SliceId sliceId);
+  Eigen::Vector2i getCoordsInSlice(Axis a, const Voxel &v);
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Region &r) {
@@ -72,28 +84,14 @@ inline std::ostream &operator<<(std::ostream &os, const Region &r) {
   os << "TO :" << r.endSlices.transpose() << std::endl;
   for (Axis d = 0; d < DIMENSION; d++) {
     os << "CHILDREN [" << d << "] ";
-    for (RegionInterface i : r.children[d]) {
-      os << i.regionId << "( " << i.nextAxis << "[";
-      for (auto r : i.rangesNextAxis)
-        os << r.from << " - " << r.to << " ";
-      os << "] " << i.prevAxis << " [";
-      for (auto r : i.rangesPrevAxis)
-        os << r.from << " - " << r.to << " ";
-      os << "] )";
-    }
+    for (RegionInterface i : r.children[d])
+      os << i.regionId << " ";
     os << std::endl;
   }
   for (Axis d = 0; d < DIMENSION; d++) {
     os << "PARENTS [" << d << "] ";
-    for (auto i : r.parents[d]) {
-      os << i.regionId << "( " << i.nextAxis << "[";
-      for (auto r : i.rangesNextAxis)
-        os << r.from << " - " << r.to << " ";
-      os << "] " << i.prevAxis << " [";
-      for (auto r : i.rangesPrevAxis)
-        os << r.from << " - " << r.to << " ";
-      os << "] )";
-    }
+    for (auto i : r.parents[d])
+      os << i.regionId << " ";
     os << std::endl;
   }
   return os;

@@ -1,69 +1,127 @@
 #include "region_interface.hpp"
-#include "region.hpp"
-#include "voxel_mesh.hpp"
-#include <ranges>
-void RegionInterface::updateRanges(Region &first, Region &second) {
-  SliceId leftFace = NO_SLICE;
-  SliceId rightFace = NO_SLICE;
-  if (first.startSlices[normal] == second.endSlices[normal]) {
-    leftFace = first.startSlices[normal];
-    rightFace = first.startSlices[normal] - 1;
-  } else if (first.endSlices[normal] == second.startSlices[normal]) {
-    leftFace = first.endSlices[normal];
-    rightFace = first.endSlices[normal] - 1;
+#include <iostream>
+#include <queue>
+
+InterfacePosition
+RegionInterface::getInterfacePosition(Axis cutDirection) const {
+  assert(cutDirection != normal);
+  Axis cutDirectionNextAxis = (cutDirection + 1) % DIMENSION;
+  if (cutDirectionNextAxis == normal) {
+    // LEFT RIGHT
+    return sign == POSITIVE ? LEFT : RIGHT;
+  } else {
+    // TOP BOT
+    return sign == POSITIVE ? TOP : BOT;
+  }
+}
+static std::vector<Eigen::Vector2i>
+getEdgeCells(InterfacePosition dir, Eigen::Index rows, Eigen::Index cols) {
+  std::vector<Eigen::Vector2i> cells;
+
+  switch (dir) {
+  case TOP:
+    for (Eigen::Index col = 0; col < cols; ++col)
+      cells.emplace_back(0, col);
+    break;
+
+  case BOT:
+    for (Eigen::Index col = 0; col < cols; ++col)
+      cells.emplace_back(rows - 1, col);
+    break;
+
+  case LEFT:
+    for (Eigen::Index row = 0; row < rows; ++row)
+      cells.emplace_back(row, 0);
+    break;
+
+  case RIGHT:
+    for (Eigen::Index row = 0; row < rows; ++row)
+      cells.emplace_back(row, cols - 1);
+    break;
   }
 
-  assert(leftFace != NO_SLICE);
-  assert(rightFace != NO_SLICE);
+  return cells;
+}
 
-  for (Axis axis = 0; axis < DIMENSION; ++axis) {
-    if (axis == normal)
-      continue;
+static bool
+hasPathBetween(const Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> &mat,
+               const std::vector<Eigen::Vector2i> &starts,
+               const std::vector<Eigen::Vector2i> &targets) {
 
-    Axis otherAxis = axis == nextAxis ? prevAxis : nextAxis;
-    auto &array = axis == nextAxis ? rangesNextAxis : rangesPrevAxis;
-    array.clear();
+  const Eigen::Index rows = mat.rows();
+  const Eigen::Index cols = mat.cols();
 
-    SliceId startSlice =
-        std::max(first.startSlices[axis], second.startSlices[axis]);
-    SliceId endSlice = std::min(first.endSlices[axis], second.endSlices[axis]);
+  if (rows == 0 || cols == 0)
+    return false;
 
-    SliceId startV =
-        std::max(first.startSlices[otherAxis], second.startSlices[otherAxis]);
-    SliceId endV =
-        std::min(first.endSlices[otherAxis], second.endSlices[otherAxis]);
+  std::vector<std::vector<bool>> visited(rows, std::vector<bool>(cols, false));
 
-    Voxel leftVoxel;
-    leftVoxel[normal] = leftFace;
+  std::queue<Eigen::Vector2i> queue;
 
-    Voxel rightVoxel;
-    rightVoxel[normal] = rightFace;
-
-    bool lastLayerFound = false;
-    SliceId beginRangeSlice = NO_SLICE;
-
-    for (SliceId currentSlice = startSlice; currentSlice < endSlice;
-         currentSlice++) {
-      bool foundForThisLayer = false;
-      leftVoxel[axis] = currentSlice;
-      rightVoxel[axis] = currentSlice;
-      for (SliceId v = startV; v < endV; v++) {
-        leftVoxel[otherAxis] = v;
-        rightVoxel[otherAxis] = v;
-        if (first.meshPtr->getId(leftVoxel) == NO_VOXEL ||
-            first.meshPtr->getId(rightVoxel) == NO_VOXEL)
-          continue;
-        foundForThisLayer = true;
-        break;
-      }
-      if (!foundForThisLayer) {
-        if (lastLayerFound)
-          array.emplace_back(beginRangeSlice, currentSlice - 1);
-      } else if (!lastLayerFound)
-        beginRangeSlice = currentSlice;
-      lastLayerFound = foundForThisLayer;
+  for (const auto &p : starts) {
+    if (mat(p.x(), p.y())) {
+      queue.push(p);
+      visited[p.x()][p.y()] = true;
     }
-    if (lastLayerFound)
-      array.emplace_back(beginRangeSlice, endSlice - 1);
   }
+
+  constexpr int dx[] = {-1, 1, 0, 0};
+  constexpr int dy[] = {0, 0, -1, 1};
+
+  while (!queue.empty()) {
+    Eigen::Vector2i p = queue.front();
+    queue.pop();
+
+    for (const auto &target : targets) {
+      if (p == target)
+        return true;
+    }
+
+    for (int i = 0; i < 4; ++i) {
+      Eigen::Index x = p.x() + dx[i];
+      Eigen::Index y = p.y() + dy[i];
+
+      if (x < 0 || x >= rows || y < 0 || y >= cols)
+        continue;
+
+      if (!visited[x][y] && mat(x, y)) {
+        visited[x][y] = true;
+        queue.emplace(x, y);
+      }
+    }
+  }
+
+  return false;
+}
+
+bool findPathInMatrix(
+    const Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> &mat,
+    const InterfacePosition &from, const InterfacePosition &to) {
+
+  assert(from != to);
+
+  if (mat.rows() == 0 || mat.cols() == 0)
+    return false;
+
+  auto starts = getEdgeCells(from, mat.rows(), mat.cols());
+  auto targets = getEdgeCells(to, mat.rows(), mat.cols());
+  for (auto start : starts)
+    std::cout << " START IS " << start << std::endl;
+  for (auto end : targets)
+    std::cout << " ENDS IS " << end << std::endl;
+
+  return hasPathBetween(mat, starts, targets);
+}
+
+bool findPathInMatrixFrom(
+    const Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> &mat,
+    const Eigen::Vector2i &from, const InterfacePosition &to) {
+
+  if (mat.rows() == 0 || mat.cols() == 0)
+    return false;
+
+  auto starts = {from};
+  auto targets = getEdgeCells(to, mat.rows(), mat.cols());
+
+  return hasPathBetween(mat, starts, targets);
 }
