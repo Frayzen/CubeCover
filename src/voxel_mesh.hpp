@@ -25,6 +25,7 @@ struct BBox {
   }
 };
 
+using FlagTensor = Eigen::Tensor<bool, DIMENSION>;
 struct VoxelMesh {
 private:
   Voxel findCorner(Region &r);
@@ -57,9 +58,6 @@ public:
   bool findWay(Axis axis, SliceId sliceId, const RegionInterface &first,
                const RegionInterface &second);
 
-  std::pair<FlagMatrix, std::vector<RegionId>> computeCutRegions(Axis axis,
-                                                                 Voxel origin);
-
   // return true if the cut happened correctly
   // it could return false if a cut already happened on this slide for this axis
   bool cut(Axis axis, Voxel origin);
@@ -75,8 +73,11 @@ public:
     return res;
   };
 
-  VoxelId getId(const Voxel &v);
+  VoxelId getId(const Voxel &v) const;
   Voxel getVoxel(VoxelId id) const;
+
+  std::pair<FlagTensor, std::vector<RegionId>>
+  computeCutRegions(Axis axis, Voxel origin) const;
 };
 
 #endif

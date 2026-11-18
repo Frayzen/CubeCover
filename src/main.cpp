@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
 
   Voxel mid = mesh.bounds() / 2;
   for (Axis d = 0; d < DIMENSION; d++) {
-    if (d == 0)
+    if (d != 0)
       mesh.cut(d, mid);
   }
 
@@ -73,12 +73,7 @@ int main(int argc, char *argv[]) {
   saveDual("dual.vtu", mesh);
 // #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
-
-  for (Axis d = 0; d < DIMENSION; d++)
-    // mesh.layerManagers[d].graph().exportDot("graph_dim" + std::to_string(d) +
-    //                                         ".dot");
-
-    corners = mesh.findCorners();
+  corners = mesh.findCorners();
   std::vector<std::vector<Voxel>> paths = mesh.findPaths();
 
   int pathId = 1;
