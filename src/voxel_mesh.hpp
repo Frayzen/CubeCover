@@ -10,6 +10,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Eigen>
 #include <cmath>
+#include <set>
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <vector>
 
@@ -38,12 +39,17 @@ private:
 
   Eigen::Vector2i getCoordsInSlice(Axis axis, const Voxel &voxel) const;
 
+  std::vector<Voxel> getNeighbours(const Voxel &v,
+                                   std::array<bool, DIMENSION> axisMask = {
+                                       true, true, true});
+
 public:
   TetrahedralMesh &tetMesh;
   size_t nbVoxel;
 
   Eigen::Tensor<VoxelId, DIMENSION> voxels;
   Eigen::Tensor<RegionId, DIMENSION> voxelToRegion;
+  Eigen::Tensor<bool, DIMENSION> voxelBoundaryFlag;
   std::vector<Voxel> idToVoxel;
 
   std::vector<Region> regions;
@@ -55,6 +61,7 @@ public:
     buildMesh();
   }
 
+  bool isCutAllowed(Axis a, const Voxel &v);
   bool findWay(Axis axis, SliceId sliceId, const RegionInterface &first,
                const RegionInterface &second);
 
@@ -76,8 +83,10 @@ public:
   VoxelId getId(const Voxel &v) const;
   Voxel getVoxel(VoxelId id) const;
 
-  std::pair<FlagTensor, std::vector<RegionId>>
+  std::tuple<FlagTensor, std::vector<RegionId>, std::set<RegionId>>
   computeCutRegions(Axis axis, Voxel origin) const;
+
+  void saveDotfile(Axis a, std::string filename);
 };
 
 #endif

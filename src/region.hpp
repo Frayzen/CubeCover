@@ -7,6 +7,7 @@
 
 #include <array>
 #include <ostream>
+#include <set>
 #include <sys/types.h>
 
 class VoxelMesh;
@@ -50,7 +51,6 @@ struct Region {
   Eigen::Vector3<SliceId> endSlices;
 
   std::array<IntegerSign, DIMENSION> signedNormals = {ZERO, ZERO, ZERO};
-  Eigen::Vector3<RegionLayerId> layerIds;
 
   std::pair<std::vector<Voxel>, std::vector<Voxel>>
   splitByFlagMatrix(const FlagMatrix &flagMatrix, const SliceId sliceId,
@@ -62,7 +62,9 @@ struct Region {
 
   bool containsSlice(Axis axis, SliceId sliceId) const;
 
-  void addCut(Region &newRegion, Axis axis, SliceId splittingSlice);
+  void addCutOld(Region &newRegion, Axis axis, SliceId sliceId);
+  void addCut(Region &newRegion, Axis axis,
+              std::set<RegionId> &targetedNeighbours);
 
   void updateAdjacency(std::vector<RegionId> oldRegionToNewRegion,
                        const std::array<bool, DIMENSION> &axisMask);

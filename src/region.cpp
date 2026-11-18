@@ -3,7 +3,6 @@
 #include "region.hpp"
 #include "voxel_mesh.hpp"
 #include <cmath>
-#include <queue>
 
 bool Region::containsSlice(Axis axis, SliceId sliceId) const {
   return startSlices[axis] <= sliceId && endSlices[axis] > sliceId;
@@ -22,7 +21,42 @@ void Region::updateBounds() {
   endSlices = newEndSlices + Eigen::Vector3<SliceId>::Ones();
 }
 
-void Region::addCut(Region &newRegion, Axis axis, SliceId splittingSlice) {
+void Region::addCut(Region &newRegion, Axis axis,
+                    std::set<RegionId> &targetedNeighbours) {
+
+  updateBounds();
+  newRegion.updateBounds();
+
+  std::vector<RegionInterface> newRegionChildren;
+  std::vector<RegionInterface> regionChildren;
+
+  for (RegionInterface &i : newRegion.children[axis]) {
+    Region &child = meshPtr->regions.at(i.regionId);
+    assert(child.id == i.regionId);
+    if (targetedNeighbours.contains(i.regionId)) {
+      regionChildren.push_back(i);
+    } else {
+      newRegionChildren.push_back(i);
+    }
+  }
+
+  newRegion.children[axis] = newRegionChildren;
+  for (RegionInterface &i : newRegion.children[axis]) {
+    Region &child = meshPtr->regions.at(i.regionId);
+    for (RegionInterface &i2 : child.parents[axis]) {
+      if (i2.regionId != id)
+        continue;
+      i2.regionId = newRegion.id;
+    }
+  }
+  newRegion.parents[axis] = {RegionInterface(axis, POSITIVE, id)};
+
+  children[axis] = regionChildren;
+  children[axis].push_back(RegionInterface(axis, NEGATIVE, newRegion.id));
+}
+
+void Region::addCutOld(Region &newRegion, Axis axis, SliceId splittingSlice) {
+
   updateBounds();
   newRegion.updateBounds();
 
@@ -50,9 +84,10 @@ void Region::traverseChildren(const TraversalFn &function,
     if (!axisMask[d])
       continue;
     for (RegionInterface &child : children[d]) {
-      Region &next = meshPtr->regions.at(child.regionId);
-      if (function(*this, child))
+      if (function(*this, child)) {
+        Region &next = meshPtr->regions.at(child.regionId);
         next.traverseChildren(function, axisMask, processingFn);
+      }
     }
   }
 }
@@ -65,13 +100,13 @@ void Region::traverseParents(const TraversalFn &function,
     if (!axisMask[d])
       continue;
     for (RegionInterface &parent : parents[d]) {
-      Region &next = meshPtr->regions.at(parent.regionId);
-      if (function(*this, parent))
-        next.traverseParents(function, axisMask, processingFn);
+      if (function(*this, parent)) {
+        Region &next = meshPtr->regions.at(parent.regionId);
+        next.traverseChildren(function, axisMask, processingFn);
+      }
     }
   }
 }
-// TODO change this so that there is no need for traverse
 void Region::updateAdjacency(std::vector<RegionId> oldRegionToNewRegion,
                              const std::array<bool, DIMENSION> &axisMask) {
   auto regionFn = [&](Region &r) {

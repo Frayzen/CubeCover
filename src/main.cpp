@@ -1,7 +1,6 @@
 #include "dual_saver.hpp"
 #include "ids.hpp"
 #include "mesh_loader.hpp"
-#include "mesh_saver.hpp"
 #include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
 #include "voxel_mesh_saver.hpp"
@@ -66,6 +65,10 @@ int main(int argc, char *argv[]) {
   cut.z() -= 11;
   mesh.cut(2, cut);
 
+  for (Axis d = 0; d < DIMENSION; d++) {
+    mesh.saveDotfile(d, "region_adjacency" + std::to_string(d) + ".dot");
+  }
+
   std::vector<Voxel> corners;
   std::vector<int> pathIds(mesh.nbVoxel);
   std::fill(pathIds.begin(), pathIds.end(), 0);
@@ -97,6 +100,8 @@ int main(int argc, char *argv[]) {
   std::vector<bool> allowedCutY(mesh.nbVoxel);
   std::vector<bool> allowedCutZ(mesh.nbVoxel);
 
+  std::vector<bool> boundaryFlag(mesh.nbVoxel);
+
   std::fill(cornersFlag.begin(), cornersFlag.end(), false);
   std::vector<size_t> colors(mesh.nbVoxel);
   std::fill(colors.begin(), colors.end(), NO_REGION);
@@ -105,9 +110,6 @@ int main(int argc, char *argv[]) {
   std::vector<double> yNormal(mesh.nbVoxel);
   std::vector<double> zNormal(mesh.nbVoxel);
 
-  std::vector<double> xLayer(mesh.nbVoxel);
-  std::vector<double> yLayer(mesh.nbVoxel);
-  std::vector<double> zLayer(mesh.nbVoxel);
   for (size_t i = 0; i < mesh.voxels.dimension(0); i++) {
     for (size_t j = 0; j < mesh.voxels.dimension(1); j++) {
       for (size_t k = 0; k < mesh.voxels.dimension(2); k++) {
@@ -121,15 +123,11 @@ int main(int argc, char *argv[]) {
         xNormal[id] = getIntegerSignValue(region.signedNormals[0]);
         yNormal[id] = getIntegerSignValue(region.signedNormals[1]);
         zNormal[id] = getIntegerSignValue(region.signedNormals[2]);
+        boundaryFlag[id] = mesh.voxelBoundaryFlag(i, j, k);
 
-        xLayer[id] = region.layerIds[0];
-        yLayer[id] = region.layerIds[1];
-        zLayer[id] = region.layerIds[2];
-
-        // allowedCutX[id] = mesh.layerManagers[0].isCutAllowed(regionId, v[0]);
-        // allowedCutY[id] = mesh.layerManagers[1].isCutAllowed(regionId, v[1]);
-        // allowedCutZ[id] = mesh.layerManagers[2].isCutAllowed(regionId, v[2]);
-
+        allowedCutX[id] = mesh.isCutAllowed(0, v);
+        allowedCutY[id] = mesh.isCutAllowed(1, v);
+        allowedCutZ[id] = mesh.isCutAllowed(2, v);
 #ifdef COMPUTEPATHS
         if (v == corners[regionId])
           cornersFlag[id] = true;
@@ -138,13 +136,11 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  saver.addField("boundaryFlag", boundaryFlag);
   saver.addField("region", colors);
   saver.addField("xNormal", xNormal);
   saver.addField("yNormal", yNormal);
   saver.addField("zNormal", zNormal);
-  saver.addField("xLayer", xLayer);
-  saver.addField("yLayer", yLayer);
-  saver.addField("zLayer", zLayer);
   saver.addField("corner", cornersFlag);
   saver.addField("pathIds", pathIds);
   saver.addField("junctionFlag", junctionFlags);

@@ -5,6 +5,7 @@
 #include "region.hpp"
 #include "signed_axis.hpp"
 #include "utils.hpp"
+#include <fstream>
 
 #include <Eigen/Eigen>
 #include <unsupported/Eigen/CXX11/Tensor>
@@ -20,12 +21,6 @@
 #include <vector>
 
 static const VoxelId INVALID_VOXEL_ID = std::numeric_limits<VoxelId>::max();
-
-static Voxel getDimensions(const Eigen::Tensor<VoxelId, DIMENSION> &voxels) {
-  return Voxel(static_cast<int>(voxels.dimension(0)),
-               static_cast<int>(voxels.dimension(1)),
-               static_cast<int>(voxels.dimension(2)));
-}
 
 VoxelId VoxelMesh::getId(const Voxel &v) const {
   return voxels(v.x(), v.y(), v.z());
@@ -50,7 +45,7 @@ void VoxelMesh::tetrahedraVoxels(const Vertex &A, const Vertex &B,
   const Voxel gridMax =
       ((tetMax - origin) / voxelSize).array().floor().cast<int>();
 
-  const Voxel dimensions = getDimensions(voxels);
+  const Voxel dimensions = bounds();
 
   // Iterate over candidate voxels
   for (int i = std::max(0, gridMin.x());
@@ -80,18 +75,14 @@ void VoxelMesh::tetrahedraVoxels(const Vertex &A, const Vertex &B,
   }
 }
 
-static void updateNormals(Axis axis, Region &oldRegion, Region &newRegion) {
-  IntegerSign oldNormal = oldRegion.signedNormals[axis];
-
-  if (oldNormal == UNDEFINED) {
-    oldRegion.signedNormals[axis] = POSITIVE;
-    newRegion.signedNormals[axis] = NEGATIVE;
-  } else if (oldNormal == ZERO) {
-    newRegion.signedNormals[axis] = ZERO;
-  } else if (oldNormal == POSITIVE) {
-    newRegion.signedNormals[axis] = ZERO;
-  } else {
-    oldRegion.signedNormals[axis] = ZERO;
+static void updateNormals(Region &region) {
+  for (Axis a = 0; a < DIMENSION; a++) {
+    if (region.children[a].size() == 0)
+      region.signedNormals[a] = POSITIVE;
+    else if (region.parents[a].size() == 0)
+      region.signedNormals[a] = NEGATIVE;
+    else
+      region.signedNormals[a] = ZERO;
   }
 }
 
@@ -120,7 +111,7 @@ Eigen::Vector2i VoxelMesh::getCoordsInSlice(Axis axis,
   return coords;
 }
 
-std::pair<FlagTensor, std::vector<RegionId>>
+std::tuple<FlagTensor, std::vector<RegionId>, std::set<RegionId>>
 VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   assert(axis >= 0 && axis < DIMENSION);
 
@@ -131,6 +122,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
 
   std::vector<bool> visitedRegions(regions.size(), false);
   std::vector<RegionId> encounteredRegions;
+  std::set<RegionId> neighouringRegionIds;
 
   // --------------------------------------------------
   // 1. Find the connected cut using a 2D flood fill.
@@ -142,7 +134,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   std::queue<Voxel> queue;
 
   if (voxels(origin.x(), origin.y(), origin.z()) == NO_VOXEL)
-    return {visited, encounteredRegions};
+    return {visited, encounteredRegions, neighouringRegionIds};
 
   queue.push(origin);
 
@@ -222,8 +214,19 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
         const RegionId neighborRegionId = voxelToRegion(x, y, z);
 
         // Do not change region along the splitting axis.
-        if (neighborAxis == axis && neighborRegionId != currentRegionId)
-          continue;
+        if (neighborRegionId != currentRegionId) {
+          if (neighborAxis == axis) {
+            if (direction == -1)
+              neighouringRegionIds.insert(neighborRegionId);
+            continue;
+          }
+          const Eigen::Vector2i coords = getCoordsInSlice(axis, voxel);
+          if (!cut(coords.x(), coords.y())) {
+            if (direction == -1)
+              neighouringRegionIds.insert(neighborRegionId);
+            continue;
+          }
+        }
 
         // Do not cross the cut.
         if (neighborAxis == axis) {
@@ -250,7 +253,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
     }
   }
 
-  return {visited, encounteredRegions};
+  return {visited, encounteredRegions, neighouringRegionIds};
 }
 
 bool VoxelMesh::cut(Axis axis, Voxel origin) {
@@ -259,13 +262,15 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   std::array<bool, DIMENSION> mask = {true, true, true};
   mask[axis] = false;
   std::vector<RegionId> oldRegionToNewRegion(regions.size(), NO_REGION);
-  auto [flagTensor, cutRegionIds] = computeCutRegions(axis, origin);
+  auto [flagTensor, cutRegionIds, neighouringRegionIds] =
+      computeCutRegions(axis, origin);
   RegionId firstNewRegion = regions.size();
   for (RegionId &cutRegionId : cutRegionIds) {
     RegionId newRegionId = regions.size();
     Region &newRegion = regions.emplace_back(regions[cutRegionId]);
     Region &r = regions[cutRegionId];
-    updateNormals(axis, r, newRegion);
+    updateNormals(r);
+    updateNormals(newRegion);
 
     oldRegionToNewRegion[r.id] = newRegionId;
     newRegion.id = newRegionId;
@@ -282,13 +287,33 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
 
     r.voxels = oldRegionVoxels;
     newRegion.voxels = newRegionVoxels;
-    r.addCut(newRegion, axis, splittingSlice);
+    r.addCut(newRegion, axis, neighouringRegionIds);
   }
   oldRegionToNewRegion.resize(regions.size(), NO_REGION);
   for (RegionId rId = firstNewRegion; rId < regions.size(); rId++) {
     regions[rId].updateAdjacency(oldRegionToNewRegion, mask);
   }
   return true;
+}
+
+std::vector<Voxel>
+VoxelMesh::getNeighbours(const Voxel &v, std::array<bool, DIMENSION> axisMask) {
+  const Voxel dimensions = bounds();
+  std::vector<Voxel> res;
+  for (Axis a = 0; a < DIMENSION; a++) {
+    if (!axisMask[a])
+      continue;
+    for (int da : {-1, 1}) {
+      Voxel neighbor = v;
+      neighbor(a) += da;
+      if ((neighbor.array() < 0).any() ||
+          (neighbor.array() >= dimensions.array()).any())
+        continue;
+      if (getId(neighbor) != NO_VOXEL)
+        res.push_back(neighbor);
+    }
+  }
+  return res;
 }
 
 void VoxelMesh::buildMesh() {
@@ -309,6 +334,7 @@ void VoxelMesh::buildMesh() {
 
   voxels.resize(dimensions.x(), dimensions.y(), dimensions.z());
   voxelToRegion.resize(dimensions.x(), dimensions.y(), dimensions.z());
+  voxelBoundaryFlag.resize(dimensions.x(), dimensions.y(), dimensions.z());
 
   voxels.setConstant(NO_VOXEL);
 
@@ -325,7 +351,6 @@ void VoxelMesh::buildMesh() {
   Region initialRegion(0, *this);
 
   initialRegion.signedNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
-  initialRegion.layerIds = {0, 0, 0};
 
   for (Axis d = 0; d < DIMENSION; d++) {
     initialRegion.startSlices[d] = 0;
@@ -338,6 +363,8 @@ void VoxelMesh::buildMesh() {
         if (voxels(i, j, k) != NO_VOXEL) {
           initialRegion.voxels.push_back(Voxel(i, j, k));
           voxelToRegion(i, j, k) = 0;
+          voxelBoundaryFlag(i, j, k) =
+              getNeighbours(Voxel(i, j, k)).size() != 6;
         }
 
   regions.push_back(initialRegion);
@@ -366,13 +393,15 @@ Voxel VoxelMesh::findCorner(Region &r) {
 
   assert(numNormals > 0);
 
-  const Voxel dimensions = getDimensions(voxels);
+  const Voxel dimensions = bounds();
 
   double minDist = std::numeric_limits<double>::max();
 
   Voxel minVoxel = Voxel::Zero();
 
   for (Voxel v : r) {
+    if (!voxelBoundaryFlag(v.x(), v.y(), v.z()))
+      continue;
     const double dist = (v - target).norm();
     if (dist < minDist) {
       minVoxel = v;
@@ -393,7 +422,7 @@ std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
   std::unordered_map<VoxelId, double> distance;
   std::unordered_map<VoxelId, VoxelId> parent;
 
-  const Voxel dimensions = getDimensions(voxels);
+  const Voxel dimensions = bounds();
 
   const Vertex A = start.cast<double>();
 
@@ -418,25 +447,6 @@ std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
   const std::array<Voxel, 6> directions = {Voxel(1, 0, 0), Voxel(-1, 0, 0),
                                            Voxel(0, 1, 0), Voxel(0, -1, 0),
                                            Voxel(0, 0, 1), Voxel(0, 0, -1)};
-  auto getNeighbours = [&](Voxel v) {
-    std::vector<VoxelId> res;
-    for (const Voxel &dir : directions) {
-      const Voxel next = v + dir;
-
-      if ((next.array() < 0).any() ||
-          (next.array() >= dimensions.array()).any()) {
-        continue;
-      }
-
-      const VoxelId nextId = getId(next);
-
-      if (nextId == INVALID_VOXEL_ID)
-        continue;
-      res.push_back(nextId);
-    }
-    return res;
-  };
-
   VoxelId startId = getId(start);
   VoxelId endId = getId(end);
   distance[startId] = 0.0;
@@ -454,23 +464,23 @@ std::vector<Voxel> VoxelMesh::findShortestPath(Voxel start, Voxel end, Axis a) {
 
     if (current == endId)
       break;
-
     const Voxel v = getVoxel(current);
-
-    for (const VoxelId &neighourId : getNeighbours(v)) {
-      const Voxel &neighbour = getVoxel(neighourId);
-      const double nbNeighbour = getNeighbours(neighbour).size();
-      const double cost = distanceToAB(neighourId) + nbNeighbour * nbNeighbour;
+    for (const Voxel &neighbor : getNeighbours(v)) {
+      if (!voxelBoundaryFlag(neighbor.x(), neighbor.y(), neighbor.z()))
+        continue;
+      const VoxelId neighborId = getId(neighbor);
+      const double nbNeighbour = getNeighbours(neighbor).size();
+      const double cost = distanceToAB(neighborId) + nbNeighbour * nbNeighbour;
 
       const double newDistance = currentDistance + cost;
 
-      if (!distance.contains(neighourId) ||
-          newDistance < distance[neighourId]) {
+      if (!distance.contains(neighborId) ||
+          newDistance < distance[neighborId]) {
 
-        distance[neighourId] = newDistance;
-        parent[neighourId] = current;
+        distance[neighborId] = newDistance;
+        parent[neighborId] = current;
 
-        queue.push({newDistance, neighourId});
+        queue.push({newDistance, neighborId});
       }
     }
   }
@@ -506,7 +516,7 @@ std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
 
   std::vector<std::vector<Voxel>> res;
 
-  const Voxel dimensions = getDimensions(voxels);
+  const Voxel dimensions = bounds();
   const size_t nbRegion = regions.size();
 
   for (RegionId rId = 0; rId < nbRegion; rId++) {
@@ -514,32 +524,55 @@ std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
     Region &r = regions[rId];
 
     for (Axis a = 0; a < DIMENSION; a++)
-      for (RegionInterface child : r.children[a]) {
-        RegionId adjId = child.regionId;
+      for (RegionInterface interface : r.children[a]) {
+        RegionId adjId = interface.regionId;
         Region &adj = regions[adjId];
-
-        Axis axis = 0;
-        size_t commonLayers = 0;
-
-        if (adjId == rId)
-          continue;
-
-        bool isAdjacent = false;
-        for (Axis d = 0; d < DIMENSION; d++) {
-          if (adj.layerIds[d] == r.layerIds[d])
-            commonLayers++;
-          else
-            isAdjacent = adj.startSlices[d] == r.endSlices[d] ||
-                         adj.endSlices[d] == r.startSlices[d];
-        }
-        assert(commonLayers < DIMENSION);
-        isAdjacent &= commonLayers == 2;
-        if (!isAdjacent)
-          continue;
-
-        res.push_back(findShortestPath(corners[rId], corners[adjId], axis));
+        res.push_back(
+            findShortestPath(corners[rId], corners[adjId], interface.normal));
       }
   }
-
   return res;
+}
+
+bool VoxelMesh::isCutAllowed(Axis a, const Voxel &v) {
+  Region &r = regions[voxelToRegion(v.x(), v.y(), v.z())];
+  for (Axis d = 0; d < DIMENSION; d++) {
+    if (d == a)
+      continue;
+    std::array<bool, DIMENSION> axisMask = {false, false, false};
+    axisMask[d] = true;
+    if (r.interfaces(axisMask).size() == 0)
+      return false;
+  }
+  return true;
+}
+
+void VoxelMesh::saveDotfile(Axis a, std::string filename) {
+  assert(a >= 0 && a < DIMENSION);
+
+  std::ofstream file(filename);
+
+  if (!file.is_open()) {
+    throw std::runtime_error("Could not open DOT file: " + filename);
+  }
+
+  file << "digraph RegionGraph {\n";
+  file << "  rankdir=TB;\n";
+  file << "  node [shape=box, style=rounded];\n\n";
+
+  // Write nodes.
+  for (const Region &region : regions) {
+    file << "  " << region.id << " [label=\"Region " << region.id << "\"];\n";
+  }
+
+  file << "\n";
+
+  // Write edges using child relationships.
+  for (const Region &region : regions) {
+    for (const RegionInterface &child : region.children[a]) {
+      file << "  " << region.id << " -> " << child.regionId << ";\n";
+    }
+  }
+
+  file << "}\n";
 }
