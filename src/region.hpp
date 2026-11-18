@@ -53,8 +53,8 @@ struct Region {
   Eigen::Vector3<RegionLayerId> layerIds;
 
   std::pair<std::vector<Voxel>, std::vector<Voxel>>
-  splitByFlagMatrix(const FlagMatrix &flagMatrix, SliceId sliceId,
-                    Axis axis) const;
+  splitByFlagMatrix(const FlagMatrix &flagMatrix, const SliceId sliceId,
+                    const Axis axis) const;
   Region(RegionId id, VoxelMesh &mesh) : meshPtr(&mesh), id(id) {}
 
   auto begin() const { return voxels.begin(); };
@@ -71,6 +71,8 @@ struct Region {
 
   SliceMatrix getSliceMatrix(Axis a, SliceId sliceId);
   Eigen::Vector2i getCoordsInSlice(Axis a, const Voxel &v) const;
+  Voxel getVoxelInSlice(Axis axis, const Eigen::Vector2i &coords,
+                        SliceId sliceId) const;
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Region &r) {

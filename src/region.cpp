@@ -155,17 +155,34 @@ Region::getSliceMatrix(Axis a, SliceId sliceId) {
   return mat;
 }
 
-Eigen::Vector2i Region::getCoordsInSlice(Axis a, const Voxel &v) const {
-  for (Axis d = 0; d < DIMENSION; d++)
-    assert(containsSlice(d, v[d]));
+Eigen::Vector2i Region::getCoordsInSlice(Axis axis, const Voxel &voxel) const {
+  assert(axis >= 0 && axis < DIMENSION);
 
-  auto relative = v - startSlices;
-  Axis nextAxis = (a + 1) % DIMENSION;
-  Axis prevAxis = (a + 2) % DIMENSION;
-  Eigen::Vector2i res;
-  res[0] = relative[nextAxis];
-  res[1] = relative[prevAxis];
-  return res;
+  for (Axis d = 0; d < DIMENSION; ++d)
+    assert(containsSlice(d, voxel[d]));
+
+  const Voxel relative = voxel - startSlices;
+
+  const Axis nextAxis = (axis + 1) % DIMENSION;
+  const Axis prevAxis = (axis + 2) % DIMENSION;
+
+  return Eigen::Vector2i(relative[nextAxis], relative[prevAxis]);
+}
+
+Voxel Region::getVoxelInSlice(Axis axis, const Eigen::Vector2i &coords,
+                              SliceId sliceId) const {
+  assert(axis >= 0 && axis < DIMENSION);
+
+  Voxel voxel = Voxel::Zero();
+  voxel[axis] = sliceId;
+
+  const Axis nextAxis = (axis + 1) % DIMENSION;
+  const Axis prevAxis = (axis + 2) % DIMENSION;
+
+  voxel[nextAxis] = coords[0];
+  voxel[prevAxis] = coords[1];
+
+  return voxel;
 }
 
 using VisitedTensor = Eigen::Tensor<bool, DIMENSION>;
@@ -173,92 +190,108 @@ using FlagMatrix = Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic>;
 using FlagTensor = Eigen::Tensor<bool, DIMENSION>;
 
 std::pair<std::vector<Voxel>, std::vector<Voxel>>
-Region::splitByFlagMatrix(const FlagMatrix &flagMatrix, SliceId sliceId,
-                          Axis axis) const {
+Region::splitByFlagMatrix(const FlagMatrix &flagMatrix, const SliceId sliceId,
+                          const Axis axis) const {
+  assert(axis >= 0 && axis < DIMENSION);
+
   std::vector<Voxel> inside;
   std::vector<Voxel> outside;
 
-  Eigen::Vector3i dimensions = endSlices - startSlices;
+  // endSlices is assumed to be exclusive.
+  const Eigen::Vector3i dimensions = endSlices - startSlices;
+
+  assert((dimensions.array() > 0).all());
 
   FlagTensor occupied(dimensions.x(), dimensions.y(), dimensions.z());
-  FlagTensor visited(dimensions.x(), dimensions.y(), dimensions.z());
+  VisitedTensor visited(dimensions.x(), dimensions.y(), dimensions.z());
 
   occupied.setConstant(false);
   visited.setConstant(false);
 
   // Mark voxels belonging to this region.
   for (const Voxel &voxel : voxels) {
-    Voxel local = voxel - startSlices;
+    const Voxel local = voxel - startSlices;
+
+    assert((local.array() >= 0).all());
+    assert((local.array() < dimensions.array()).all());
+
     occupied(local.x(), local.y(), local.z()) = true;
   }
 
   std::queue<Voxel> queue;
 
-  // Find the first voxel whose projected coordinates are true.
-  for (const Voxel &voxel : voxels) {
-    Eigen::Vector2i coords = getCoordsInSlice(axis, voxel);
-
-    if (coords.x() >= 0 && coords.y() >= 0 && coords.x() < flagMatrix.rows() &&
-        coords.y() < flagMatrix.cols() && flagMatrix(coords.x(), coords.y())) {
-      queue.push(voxel);
-      visited((voxel - startSlices).x(), (voxel - startSlices).y(),
-              (voxel - startSlices).z()) = true;
-      break;
-    }
-  }
-
-  // Flood fill.
-  while (!queue.empty()) {
-    Voxel voxel = queue.front();
-    queue.pop();
-
-    inside.push_back(voxel);
-
-    for (Axis neighborAxis = 0; neighborAxis < DIMENSION; ++neighborAxis) {
-      if (neighborAxis == axis)
+  // Flood-fill every connected component intersecting the flagged area.
+  for (Eigen::Index x = 0; x < flagMatrix.rows(); ++x) {
+    for (Eigen::Index y = 0; y < flagMatrix.cols(); ++y) {
+      if (!flagMatrix(x, y))
         continue;
 
-      for (int direction : {-1, 1}) {
-        Voxel neighbor = voxel;
-        neighbor[neighborAxis] += direction;
+      // Reconstruct the voxel on the splitting slice.
+      const Eigen::Vector2i coords(x, y);
+      const Voxel startVoxel = getVoxelInSlice(axis, coords, sliceId);
 
-        // Do not cross the splitting slice.
-        if ((voxel[axis] < sliceId && neighbor[axis] >= sliceId) ||
-            (voxel[axis] >= sliceId && neighbor[axis] < sliceId))
-          continue;
+      const Voxel startLocal = startVoxel - startSlices;
 
-        Voxel local = neighbor - startSlices;
+      // Check whether the starting voxel belongs to the region.
+      if ((startLocal.array() < 0).any() ||
+          (startLocal.array() >= dimensions.array()).any())
+        continue;
 
-        if ((local.array() < 0).any() ||
-            (local.array() >= dimensions.array()).any())
-          continue;
+      if (!occupied(startLocal.x(), startLocal.y(), startLocal.z()))
+        continue;
 
-        if (!occupied(local.x(), local.y(), local.z()) ||
-            visited(local.x(), local.y(), local.z()))
-          continue;
+      if (visited(startLocal.x(), startLocal.y(), startLocal.z()))
+        continue;
 
-        Eigen::Vector2i coords = getCoordsInSlice(axis, neighbor);
+      // Start a new connected component.
+      queue.push(startVoxel);
+      visited(startLocal.x(), startLocal.y(), startLocal.z()) = true;
 
-        if (coords.x() < 0 || coords.y() < 0 ||
-            coords.x() >= flagMatrix.rows() ||
-            coords.y() >= flagMatrix.cols() ||
-            !flagMatrix(coords.x(), coords.y()))
-          continue;
+      while (!queue.empty()) {
+        const Voxel voxel = queue.front();
+        queue.pop();
 
-        visited(local.x(), local.y(), local.z()) = true;
-        queue.push(neighbor);
+        inside.push_back(voxel);
+
+        // Explore the 6-connected neighborhood.
+        for (Axis neighborAxis = 0; neighborAxis < DIMENSION; ++neighborAxis) {
+          for (int direction : {-1, 1}) {
+            Voxel neighbor = voxel;
+            neighbor[neighborAxis] += direction;
+
+            // Do not cross the splitting plane.
+            if ((voxel[axis] < sliceId && neighbor[axis] >= sliceId) ||
+                (voxel[axis] >= sliceId && neighbor[axis] < sliceId))
+              continue;
+
+            const Voxel local = neighbor - startSlices;
+
+            // Check region bounds.
+            if ((local.array() < 0).any() ||
+                (local.array() >= dimensions.array()).any())
+              continue;
+
+            const auto lx = local.x();
+            const auto ly = local.y();
+            const auto lz = local.z();
+
+            if (!occupied(lx, ly, lz) || visited(lx, ly, lz))
+              continue;
+
+            visited(lx, ly, lz) = true;
+            queue.push(neighbor);
+          }
+        }
       }
     }
   }
 
-  // Separate voxels into the two resulting components.
+  // Collect all voxels not reached by the flood fills.
   for (const Voxel &voxel : voxels) {
-    Voxel local = voxel - startSlices;
+    const Voxel local = voxel - startSlices;
 
-    if (visited(local.x(), local.y(), local.z()))
-      continue;
-
-    outside.push_back(voxel);
+    if (!visited(local.x(), local.y(), local.z()))
+      outside.push_back(voxel);
   }
 
   return {inside, outside};

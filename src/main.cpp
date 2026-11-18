@@ -58,9 +58,9 @@ int main(int argc, char *argv[]) {
       mesh.cut(d, mid);
   }
 
-  // mesh.cut(0, mesh.bounds() / 7);
-  // mesh.cut(0, (6 * mesh.bounds()) / 7);
-  // mesh.cut(2, mesh.bounds() / 4);
+  mesh.cut(0, mesh.bounds() / 7);
+  mesh.cut(0, (6 * mesh.bounds()) / 7);
+  mesh.cut(2, mesh.bounds() / 4);
 
   Voxel cut = (3 * mesh.bounds()) / 4;
   cut.z() -= 11;
@@ -113,7 +113,6 @@ int main(int argc, char *argv[]) {
   std::vector<double> xLayer(mesh.nbVoxel);
   std::vector<double> yLayer(mesh.nbVoxel);
   std::vector<double> zLayer(mesh.nbVoxel);
-  RegionId regionId = 0;
   for (size_t i = 0; i < mesh.voxels.dimension(0); i++) {
     for (size_t j = 0; j < mesh.voxels.dimension(1); j++) {
       for (size_t k = 0; k < mesh.voxels.dimension(2); k++) {
@@ -121,7 +120,8 @@ int main(int argc, char *argv[]) {
         VoxelId id = mesh.getId(v);
         if (id == NO_VOXEL)
           continue;
-        Region &region = mesh.regions[mesh.voxelToRegion(i, j, k)];
+        RegionId regionId = mesh.voxelToRegion(i, j, k);
+        Region &region = mesh.regions[regionId];
         colors[id] = regionId;
         xNormal[id] = getIntegerSignValue(region.signedNormals[0]);
         yNormal[id] = getIntegerSignValue(region.signedNormals[1]);

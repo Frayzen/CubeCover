@@ -191,9 +191,6 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
 
     auto [newVoxels, rVoxels] =
         r.splitByFlagMatrix(flagMatrix, splittingSlice, axis);
-    std::cout << "OLD VOXEL AMOUNT " << r.voxels.size() << std::endl;
-    std::cout << "INSIDE VOXEL AMOUNT " << newVoxels.size() << std::endl;
-    std::cout << "OUTSIDE VOXEL AMOUNT " << rVoxels.size() << std::endl;
 
     for (Voxel v : newVoxels)
       voxelToRegion(v.x(), v.y(), v.z()) = newRegionId;
