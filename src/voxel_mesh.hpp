@@ -50,6 +50,7 @@ public:
   Eigen::Tensor<VoxelId, DIMENSION> voxels;
   Eigen::Tensor<RegionId, DIMENSION> voxelToRegion;
   Eigen::Tensor<bool, DIMENSION> voxelBoundaryFlag;
+  Eigen::Tensor<bool, DIMENSION> voxelEdgeFlag;
   std::vector<Voxel> idToVoxel;
 
   std::vector<Region> regions;

@@ -335,6 +335,7 @@ void VoxelMesh::buildMesh() {
   voxels.resize(dimensions.x(), dimensions.y(), dimensions.z());
   voxelToRegion.resize(dimensions.x(), dimensions.y(), dimensions.z());
   voxelBoundaryFlag.resize(dimensions.x(), dimensions.y(), dimensions.z());
+  voxelEdgeFlag.resize(dimensions.x(), dimensions.y(), dimensions.z());
 
   voxels.setConstant(NO_VOXEL);
 
@@ -365,6 +366,7 @@ void VoxelMesh::buildMesh() {
           voxelToRegion(i, j, k) = 0;
           voxelBoundaryFlag(i, j, k) =
               getNeighbours(Voxel(i, j, k)).size() != 6;
+          voxelEdgeFlag(i, j, k) = getNeighbours(Voxel(i, j, k)).size() <= 4;
         }
 
   regions.push_back(initialRegion);
@@ -400,7 +402,7 @@ Voxel VoxelMesh::findCorner(Region &r) {
   Voxel minVoxel = Voxel::Zero();
 
   for (Voxel v : r) {
-    if (!voxelBoundaryFlag(v.x(), v.y(), v.z()))
+    if (!voxelEdgeFlag(v.x(), v.y(), v.z()))
       continue;
     const double dist = (v - target).norm();
     if (dist < minDist) {

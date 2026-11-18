@@ -70,11 +70,11 @@ int main(int argc, char *argv[]) {
   }
 
   std::vector<Voxel> corners;
-  std::vector<int> pathIds(mesh.nbVoxel);
+  std::vector<size_t> pathIds(mesh.nbVoxel);
   std::fill(pathIds.begin(), pathIds.end(), 0);
 
   saveDual("dual.vtu", mesh);
-// #define COMPUTEPATHS
+#define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   corners = mesh.findCorners();
   std::vector<std::vector<Voxel>> paths = mesh.findPaths();
