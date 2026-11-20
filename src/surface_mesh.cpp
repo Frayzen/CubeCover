@@ -145,7 +145,7 @@ std::vector<EdgeId> SurfaceMesh::findShortestPath(
       const NodeId neighbor = edge[0] == current ? edge[1] : edge[0];
 
       Vertex dir = vertices[current] - vertices[neighbor];
-      double weight = (dir).norm();
+      double weight = dir.norm();
 
       std::array<bool, DIMENSION> foundAxis = {false, false, false};
       size_t amountDifferentAxis = 0;
@@ -159,8 +159,9 @@ std::vector<EdgeId> SurfaceMesh::findShortestPath(
         foundAxis[a] = true;
       }
 
+      // Done in order to prefer sharp edges rather than planar surfaces
       if (amountDifferentAxis == 1)
-        weight *= 2;
+        weight *= (1 + weight / 100.0);
       weight *= axisPenality[dirAxis];
 
       const double candidate = currentDist + weight;
