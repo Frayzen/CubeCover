@@ -62,8 +62,9 @@ int main(int argc, char *argv[]) {
 
   Voxel cut = (3 * mesh.bounds()) / 4;
   cut.z() -= 11;
-  std::cout << "HERE " << std::endl;
   mesh.cut(2, cut);
+
+  mesh.updateNormals();
 
   for (Axis d = 0; d < DIMENSION; d++) {
     mesh.saveDotfile(d, "region_adjacency" + std::to_string(d) + ".dot");
@@ -72,9 +73,9 @@ int main(int argc, char *argv[]) {
   std::vector<Voxel> corners;
   std::vector<size_t> pathIds(mesh.nbVoxel);
   std::fill(pathIds.begin(), pathIds.end(), 0);
-
   saveDual("dual.vtu", mesh);
-// #define COMPUTEPATHS
+
+#define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   corners = mesh.findCorners();
   std::vector<std::vector<Voxel>> paths = mesh.findPaths();

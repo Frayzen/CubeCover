@@ -84,6 +84,8 @@ public:
     return res;
   };
 
+  void updateNormals();
+
   VoxelId getId(const Voxel &v) const;
   Voxel getVoxel(VoxelId id) const;
 

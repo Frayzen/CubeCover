@@ -75,15 +75,23 @@ void VoxelMesh::tetrahedraVoxels(const Vertex &A, const Vertex &B,
   }
 }
 
-static void updateNormals(Region &region) {
-  for (Axis a = 0; a < DIMENSION; a++) {
-    if (region.children[a].size() == 0)
-      region.signedNormals[a] = POSITIVE;
-    // else if (region.parents[a].size() == 0)
-    //   region.signedNormals[a] = NEGATIVE;
-    else
-      region.signedNormals[a] = ZERO;
+void VoxelMesh::updateNormals() {
+  std::vector<std::array<bool, DIMENSION>> hasParents(regions.size(),
+                                                      {false, false, false});
+  for (Region &region : regions) {
+    for (Axis a = 0; a < DIMENSION; a++)
+      for (RegionInterface &i : region.children[a])
+        hasParents[i.regionId][a] = true;
   }
+  for (Region &region : regions)
+    for (Axis a = 0; a < DIMENSION; a++) {
+      if (region.children[a].size() == 0)
+        region.signedNormals[a] = NEGATIVE;
+      else if (!hasParents[region.id][a])
+        region.signedNormals[a] = POSITIVE;
+      else
+        region.signedNormals[a] = ZERO;
+    }
 }
 
 Eigen::Vector2i VoxelMesh::getSliceSize(Axis axis) const {
@@ -307,13 +315,13 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   auto [flags, encounteredRegions, topRegionNeighbors, bottomRegionNeighbors] =
       computeCutRegions(axis, origin);
 
-  for (auto r : topRegionNeighbors) {
-    std::cout << "TOP VOLUME NEIGH " << r << std::endl;
-  }
+  // for (auto r : topRegionNeighbors) {
+  //   std::cout << "TOP VOLUME NEIGH " << r << std::endl;
+  // }
 
-  for (auto r : bottomRegionNeighbors) {
-    std::cout << "BOT VOLUME NEIGH " << r << std::endl;
-  }
+  // for (auto r : bottomRegionNeighbors) {
+  //   std::cout << "BOT VOLUME NEIGH " << r << std::endl;
+  // }
 
   std::vector<RegionId> cutRegionToNewRegion(regions.size(), NO_REGION);
   for (RegionId cutRegionId : encounteredRegions) {
@@ -368,9 +376,6 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
         i->regionId = cutRegionToNewRegion[i->regionId];
     }
   }
-
-  for (Region &r : regions)
-    updateNormals(r);
   return true;
 }
 
