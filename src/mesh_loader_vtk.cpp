@@ -285,7 +285,7 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
     for (size_t j = 0; j < 3; ++j)
       nodes[j] = nodeRemap[face.nodes[j]];
 
-    Face newFace(nodes);
+    TMFace newFace(nodes);
 
     newFace.adjacentCells[0] = tetRemap[face.adjacentCells[0]];
 
@@ -301,7 +301,7 @@ bool loadTetrahedralMesh(const std::string &path, TetrahedralMesh &output) {
   // 7. Generate edges and identify boundary edges
   // ------------------------------------------------------------
 
-  std::vector<Edge> rawEdges;
+  std::vector<TMEdge> rawEdges;
   std::map<std::array<size_t, 2>, size_t> edgeMap;
 
   std::vector<std::array<size_t, 3>> rawFaceToEdges(rawFaces.size());

@@ -380,7 +380,8 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
 }
 
 std::vector<Voxel>
-VoxelMesh::getNeighbours(const Voxel &v, std::array<bool, DIMENSION> axisMask) {
+VoxelMesh::getNeighbours(const Voxel &v,
+                         std::array<bool, DIMENSION> axisMask) const {
   const Voxel dimensions = bounds();
   std::vector<Voxel> res;
   for (Axis a = 0; a < DIMENSION; a++) {
@@ -420,11 +421,15 @@ void VoxelMesh::buildMesh() {
   voxelBoundaryFlag.resize(dimensions.x(), dimensions.y(), dimensions.z());
   voxelEdgeFlag.resize(dimensions.x(), dimensions.y(), dimensions.z());
 
+  voxelPathFlag.resize(dimensions.x(), dimensions.y(), dimensions.z());
+  voxelPathFlag.setConstant(NO_AXIS);
+  voxelNormals.resize(dimensions.x(), dimensions.y(), dimensions.z());
+
   voxels.setConstant(NO_VOXEL);
 
   nbVoxel = 0;
   idToVoxel.clear();
-  for (const Tetrahedron &tet : tetMesh.tets) {
+  for (const TMTetrahedron &tet : tetMesh.tets) {
     const Vertex &v1 = tetMesh.vertices[tet[0]];
     const Vertex &v2 = tetMesh.vertices[tet[1]];
     const Vertex &v3 = tetMesh.vertices[tet[2]];
@@ -595,27 +600,32 @@ std::vector<Voxel> VoxelMesh::findCorners() {
   return res;
 }
 
-std::vector<std::vector<Voxel>> VoxelMesh::findPaths() {
-
+std::vector<VoxelPath> VoxelMesh::findPaths() {
   std::vector<Voxel> corners = findCorners();
 
-  std::vector<std::vector<Voxel>> res;
+  std::vector<VoxelPath> res;
 
-  const Voxel dimensions = bounds();
   const size_t nbRegion = regions.size();
 
-  for (RegionId rId = 0; rId < nbRegion; rId++) {
-
+  for (RegionId rId = 0; rId < nbRegion; ++rId) {
     Region &r = regions[rId];
 
-    for (Axis a = 0; a < DIMENSION; a++)
-      for (RegionInterface interface : r.children[a]) {
+    for (Axis a = 0; a < DIMENSION; ++a) {
+      for (const RegionInterface &interface : r.children[a]) {
+
         RegionId adjId = interface.regionId;
-        Region &adj = regions[adjId];
-        res.push_back(
-            findShortestPath(corners[rId], corners[adjId], interface.normal));
+
+        VoxelPath path;
+        path.normal = interface.normal;
+        path.nodes =
+            findShortestPath(corners[rId], corners[adjId], interface.normal);
+        for (Voxel v : path.nodes)
+          voxelPathFlag(v.x(), v.y(), v.z()) = interface.normal;
+        res.push_back(std::move(path));
       }
+    }
   }
+
   return res;
 }
 

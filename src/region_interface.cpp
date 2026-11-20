@@ -8,10 +8,10 @@ RegionInterface::getInterfacePosition(Axis cutDirection) const {
   Axis cutDirectionNextAxis = (cutDirection + 1) % DIMENSION;
   if (cutDirectionNextAxis == normal) {
     // LEFT RIGHT
-    return sign == POSITIVE ? LEFT : RIGHT;
+    return sign == POSITIVE ? IP_LEFT : IP_RIGHT;
   } else {
     // TOP BOT
-    return sign == POSITIVE ? TOP : BOT;
+    return sign == POSITIVE ? IP_TOP : IP_BOT;
   }
 }
 static std::vector<Eigen::Vector2i>
@@ -19,22 +19,22 @@ getEdgeCells(InterfacePosition dir, Eigen::Index rows, Eigen::Index cols) {
   std::vector<Eigen::Vector2i> cells;
 
   switch (dir) {
-  case TOP:
+  case IP_TOP:
     for (Eigen::Index col = 0; col < cols; ++col)
       cells.emplace_back(0, col);
     break;
 
-  case BOT:
+  case IP_BOT:
     for (Eigen::Index col = 0; col < cols; ++col)
       cells.emplace_back(rows - 1, col);
     break;
 
-  case LEFT:
+  case IP_LEFT:
     for (Eigen::Index row = 0; row < rows; ++row)
       cells.emplace_back(row, 0);
     break;
 
-  case RIGHT:
+  case IP_RIGHT:
     for (Eigen::Index row = 0; row < rows; ++row)
       cells.emplace_back(row, cols - 1);
     break;

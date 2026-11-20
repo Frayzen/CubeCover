@@ -30,6 +30,11 @@ enum class CutFlag : uint8_t { TopRegion, BottomRegion, Undefined };
 
 using CutFlagTensor = Eigen::Tensor<CutFlag, 3>;
 
+struct VoxelPath {
+  std::vector<Voxel> nodes;
+  Axis normal;
+};
+
 struct VoxelMesh {
 private:
   Voxel findCorner(Region &r);
@@ -42,10 +47,6 @@ private:
 
   Eigen::Vector2i getCoordsInSlice(Axis axis, const Voxel &voxel) const;
 
-  std::vector<Voxel> getNeighbours(const Voxel &v,
-                                   std::array<bool, DIMENSION> axisMask = {
-                                       true, true, true});
-
 public:
   TetrahedralMesh &tetMesh;
   size_t nbVoxel;
@@ -54,6 +55,8 @@ public:
   Eigen::Tensor<RegionId, DIMENSION> voxelToRegion;
   Eigen::Tensor<bool, DIMENSION> voxelBoundaryFlag;
   Eigen::Tensor<bool, DIMENSION> voxelEdgeFlag;
+  Eigen::Tensor<Axis, DIMENSION> voxelPathFlag;
+  Eigen::Tensor<std::array<IntegerSign, DIMENSION>, DIMENSION> voxelNormals;
   std::vector<Voxel> idToVoxel;
 
   std::vector<Region> regions;
@@ -73,7 +76,7 @@ public:
   // it could return false if a cut already happened on this slide for this axis
   bool cut(Axis axis, Voxel origin);
   std::vector<Voxel> findCorners();
-  std::vector<std::vector<Voxel>> findPaths();
+  std::vector<VoxelPath> findPaths();
 
   void tetrahedraVoxels(const Vertex &A, const Vertex &B, const Vertex &C,
                         const Vertex &D);
@@ -92,6 +95,10 @@ public:
   std::tuple<CutFlagTensor, std::set<RegionId>, std::set<RegionId>,
              std::set<RegionId>>
   computeCutRegions(Axis axis, Voxel origin) const;
+
+  std::vector<Voxel> getNeighbours(const Voxel &v,
+                                   std::array<bool, DIMENSION> axisMask = {
+                                       true, true, true}) const;
 
   void saveDotfile(Axis a, std::string filename);
 };

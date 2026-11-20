@@ -13,10 +13,10 @@
 
 class TetrahedralMesh;
 
-struct Edge {
+struct TMEdge {
   std::array<size_t, 2> nodes;
-  Edge() {};
-  Edge(const std::array<size_t, 2> &nodes) : nodes(nodes) {}
+  TMEdge() {};
+  TMEdge(const std::array<size_t, 2> &nodes) : nodes(nodes) {}
   const size_t &operator[](size_t i) const { return nodes[i]; }
   size_t &operator[](size_t i) { return nodes[i]; }
   Vertex computeCenter(TetrahedralMesh &m) const;
@@ -27,9 +27,9 @@ struct Edge {
   auto end() { return nodes.end(); };
 };
 
-struct Tetrahedron {
-  Tetrahedron() {}
-  Tetrahedron(const std::array<size_t, NB_NODE_PER_TET> v) : nodes(v) {}
+struct TMTetrahedron {
+  TMTetrahedron() {}
+  TMTetrahedron(const std::array<size_t, NB_NODE_PER_TET> v) : nodes(v) {}
   std::array<size_t, NB_NODE_PER_TET> nodes;
 
   const size_t &operator[](size_t i) const { return nodes[i]; }
@@ -47,9 +47,9 @@ struct Tetrahedron {
   auto end() { return nodes.end(); };
 };
 
-struct Face {
+struct TMFace {
   std::array<size_t, 3> nodes;
-  Face(const std::array<size_t, 3> nodes) : nodes(nodes) {}
+  TMFace(const std::array<size_t, 3> nodes) : nodes(nodes) {}
   std::array<ssize_t, 2> adjacentCells;
 
   const size_t &operator[](size_t i) const { return nodes[i]; }
@@ -63,10 +63,10 @@ struct Face {
 };
 
 struct TetrahedralMesh {
-  std::vector<Vertex> vertices;  // boundary vertices at the start
-  std::vector<Tetrahedron> tets; // boundary tets at the start
-  std::vector<Face> faces;       // boudnary faces at the start
-  std::vector<Edge> edges;       // boundary edges at the start
+  std::vector<Vertex> vertices;    // boundary vertices at the start
+  std::vector<TMTetrahedron> tets; // boundary tets at the start
+  std::vector<TMFace> faces;       // boudnary faces at the start
+  std::vector<TMEdge> edges;       // boundary edges at the start
   size_t nbBoundaryTet;
   size_t nbBoundaryFace;
   size_t nbBoundaryNode;

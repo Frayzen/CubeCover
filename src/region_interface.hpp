@@ -3,7 +3,7 @@
 
 class Region;
 
-enum InterfacePosition { TOP, BOT, LEFT, RIGHT };
+enum InterfacePosition { IP_TOP, IP_BOT, IP_LEFT, IP_RIGHT };
 
 #include "signed_axis.hpp"
 

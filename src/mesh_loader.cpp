@@ -15,7 +15,7 @@
 #include <vtkUnstructuredGridReader.h>
 #include <vtkXMLUnstructuredGridReader.h>
 
-double Face::computeArea(TetrahedralMesh &m) {
+double TMFace::computeArea(TetrahedralMesh &m) {
   const Vertex &p0 = m.vertices[nodes[0]];
   const Vertex &p1 = m.vertices[nodes[1]];
   const Vertex &p2 = m.vertices[nodes[2]];
@@ -30,7 +30,7 @@ double Face::computeArea(TetrahedralMesh &m) {
   return area;
 }
 
-Vertex Face::computeNormal(TetrahedralMesh &m) {
+Vertex TMFace::computeNormal(TetrahedralMesh &m) {
   const Vertex &p0 = m.vertices[nodes[0]];
   const Vertex &p1 = m.vertices[nodes[1]];
   const Vertex &p2 = m.vertices[nodes[2]];
@@ -59,7 +59,7 @@ Vertex Face::computeNormal(TetrahedralMesh &m) {
   return normal;
 }
 
-Vertex Tetrahedron::getBarycenter(std::vector<Vertex> &meshVertices) const {
+Vertex TMTetrahedron::getBarycenter(std::vector<Vertex> &meshVertices) const {
   Vertex res = Vertex::Zero();
 
   for (size_t i = 0; i < NB_NODE_PER_TET; ++i)
@@ -68,7 +68,7 @@ Vertex Tetrahedron::getBarycenter(std::vector<Vertex> &meshVertices) const {
   return res / static_cast<double>(NB_NODE_PER_TET);
 }
 
-Vertex Face::getBarycenter(std::vector<Vertex> &meshVertices) const {
+Vertex TMFace::getBarycenter(std::vector<Vertex> &meshVertices) const {
   Vertex res = Vertex::Zero();
 
   for (size_t i = 0; i < NB_NODE_PER_TET; ++i)
@@ -77,7 +77,7 @@ Vertex Face::getBarycenter(std::vector<Vertex> &meshVertices) const {
   return res / static_cast<double>(NB_NODE_PER_TET);
 };
 
-Vertex Edge::computeCenter(TetrahedralMesh &m) const {
+Vertex TMEdge::computeCenter(TetrahedralMesh &m) const {
   Vertex res = Vertex::Zero();
 
   for (size_t i = 0; i < nodes.size(); ++i)
@@ -86,14 +86,14 @@ Vertex Edge::computeCenter(TetrahedralMesh &m) const {
   return res / static_cast<double>(nodes.size());
 }
 
-double Edge::computeLength(TetrahedralMesh &m) const {
+double TMEdge::computeLength(TetrahedralMesh &m) const {
   return (m.vertices[nodes[0]] - m.vertices[nodes[1]]).norm();
 };
 
-Vertex Edge::computeDir(TetrahedralMesh &m) const {
+Vertex TMEdge::computeDir(TetrahedralMesh &m) const {
   return m.vertices[nodes[0]] - m.vertices[nodes[1]];
 }
 
-bool Edge::containsNode(size_t nodeId) const {
+bool TMEdge::containsNode(size_t nodeId) const {
   return (nodes[0] == nodeId) || (nodes[1] == nodeId);
 };

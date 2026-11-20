@@ -24,7 +24,7 @@ const size_t minComponentSize = 3;
 // -----------------------------------------------------------------------------
 
 static FacePlane computeFacePlane(FaceId faceId, TetrahedralMesh &mesh) {
-  const Face &face = mesh.faces[faceId];
+  const TMFace &face = mesh.faces[faceId];
 
   const Vertex &a = mesh.vertices[face[0]];
   const Vertex &b = mesh.vertices[face[1]];
@@ -173,7 +173,7 @@ static double pointToPatchDistanceSquared(const Vertex &point, int patchId,
   double minDistanceSquared = std::numeric_limits<double>::infinity();
 
   for (FaceId faceId : surface.patches[patchId]) {
-    const Face &face = mesh.faces[faceId];
+    const TMFace &face = mesh.faces[faceId];
 
     const Vertex closest =
         closestPointOnTriangle(point, mesh.vertices[face[0]],
@@ -273,7 +273,7 @@ computeJunctionClusters(TetrahedralMesh &mesh,
   std::vector<std::vector<TetId>> nodeToJunctionTets(mesh.vertices.size());
 
   for (TetId tetId : junctionTetIds) {
-    const Tetrahedron &tet = mesh.tets[tetId];
+    const TMTetrahedron &tet = mesh.tets[tetId];
 
     for (size_t localId = 0; localId < NB_NODE_PER_TET; ++localId) {
       nodeToJunctionTets[tet[localId]].push_back(tetId);
@@ -303,7 +303,7 @@ computeJunctionClusters(TetrahedralMesh &mesh,
       ++nbTets;
 
       // Find all candidate tetrahedra sharing one of its vertices.
-      const Tetrahedron &tet = mesh.tets[current];
+      const TMTetrahedron &tet = mesh.tets[current];
 
       for (size_t localId = 0; localId < NB_NODE_PER_TET; ++localId) {
         const NodeId nodeId = tet[localId];

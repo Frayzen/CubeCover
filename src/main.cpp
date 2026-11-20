@@ -2,6 +2,7 @@
 #include "ids.hpp"
 #include "mesh_loader.hpp"
 #include "signed_axis.hpp"
+#include "surface_mesh.hpp"
 #include "voxel_mesh.hpp"
 #include "voxel_mesh_saver.hpp"
 #include <Eigen/Core>
@@ -71,21 +72,13 @@ int main(int argc, char *argv[]) {
   }
 
   std::vector<Voxel> corners;
-  std::vector<size_t> pathIds(mesh.nbVoxel);
-  std::fill(pathIds.begin(), pathIds.end(), 0);
   saveDual("dual.vtu", mesh);
 
 #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
-  corners = mesh.findCorners();
-  std::vector<std::vector<Voxel>> paths = mesh.findPaths();
-
-  int pathId = 1;
-  for (auto path : paths) {
-    for (Voxel v : path)
-      pathIds[mesh.getId(v)] = pathId;
-    pathId++;
-  }
+  SurfaceMesh surfaceMesh = generateSurface(mesh);
+  surfaceMesh.findPaths();
+  surfaceMesh.exportMesh("surface.vtu");
 #endif
 
   VoxelMeshSaver saver(mesh);
@@ -95,15 +88,12 @@ int main(int argc, char *argv[]) {
   for (auto voxel : junctions)
     junctionFlags[mesh.getId(voxel)] = true;
 
-  std::vector<bool> cornersFlag(mesh.nbVoxel);
-
   std::vector<bool> allowedCutX(mesh.nbVoxel);
   std::vector<bool> allowedCutY(mesh.nbVoxel);
   std::vector<bool> allowedCutZ(mesh.nbVoxel);
 
   std::vector<bool> boundaryFlag(mesh.nbVoxel);
 
-  std::fill(cornersFlag.begin(), cornersFlag.end(), false);
   std::vector<size_t> colors(mesh.nbVoxel);
   std::fill(colors.begin(), colors.end(), NO_REGION);
 
@@ -129,10 +119,6 @@ int main(int argc, char *argv[]) {
         allowedCutX[id] = mesh.isCutAllowed(0, v);
         allowedCutY[id] = mesh.isCutAllowed(1, v);
         allowedCutZ[id] = mesh.isCutAllowed(2, v);
-#ifdef COMPUTEPATHS
-        if (v == corners[regionId])
-          cornersFlag[id] = true;
-#endif
       }
     }
   }
@@ -142,8 +128,6 @@ int main(int argc, char *argv[]) {
   saver.addField("xNormal", xNormal);
   saver.addField("yNormal", yNormal);
   saver.addField("zNormal", zNormal);
-  saver.addField("corner", cornersFlag);
-  saver.addField("pathIds", pathIds);
   saver.addField("junctionFlag", junctionFlags);
   saver.addField("allowedCutX", allowedCutX);
   saver.addField("allowedCutY", allowedCutY);
