@@ -26,7 +26,10 @@ struct BBox {
   }
 };
 
-using FlagTensor = Eigen::Tensor<bool, DIMENSION>;
+enum class CutFlag : uint8_t { TopRegion, BottomRegion, Undefined };
+
+using CutFlagTensor = Eigen::Tensor<CutFlag, 3>;
+
 struct VoxelMesh {
 private:
   Voxel findCorner(Region &r);
@@ -84,7 +87,8 @@ public:
   VoxelId getId(const Voxel &v) const;
   Voxel getVoxel(VoxelId id) const;
 
-  std::tuple<FlagTensor, std::vector<RegionId>, std::set<RegionId>>
+  std::tuple<CutFlagTensor, std::set<RegionId>, std::set<RegionId>,
+             std::set<RegionId>>
   computeCutRegions(Axis axis, Voxel origin) const;
 
   void saveDotfile(Axis a, std::string filename);

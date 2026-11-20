@@ -7,7 +7,6 @@
 
 #include <array>
 #include <ostream>
-#include <set>
 #include <sys/types.h>
 
 class VoxelMesh;
@@ -18,27 +17,10 @@ using SliceMatrix = Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic>;
 struct Region {
   void updateBounds();
   std::array<std::vector<RegionInterface>, DIMENSION> children;
-  std::array<std::vector<RegionInterface>, DIMENSION> parents;
+  // std::array<std::vector<RegionInterface>, DIMENSION> parents;
 
   using TraversalFn = std::function<bool(Region &, RegionInterface &)>;
   using ProcessingFn = std::function<bool(Region &)>;
-
-  void traverseChildren(const TraversalFn &function,
-                        const std::array<bool, DIMENSION> &axisMask,
-                        const ProcessingFn &processingFn = nullptr);
-  void traverseChildren(const TraversalFn &function, const Axis a) {
-    std::array<bool, DIMENSION> axisMask{};
-    axisMask[a] = true;
-    traverseChildren(function, axisMask);
-  };
-  void traverseParents(const TraversalFn &function,
-                       const std::array<bool, DIMENSION> &axisMask,
-                       const ProcessingFn &processingFn = nullptr);
-  void traverseParents(const TraversalFn &function, const Axis a) {
-    std::array<bool, DIMENSION> axisMask{};
-    axisMask[a] = true;
-    traverseParents(function, axisMask);
-  };
 
   RegionId id;
 
@@ -62,14 +44,14 @@ struct Region {
 
   bool containsSlice(Axis axis, SliceId sliceId) const;
 
-  void addCutOld(Region &newRegion, Axis axis, SliceId sliceId);
-  void addCut(Region &newRegion, Axis axis,
-              std::set<RegionId> &targetedNeighbours);
+  std::vector<RegionInterface *>
+  interfaces(const std::array<bool, DIMENSION> &axisMask = {true, true, true});
 
-  void updateAdjacency(std::vector<RegionId> oldRegionToNewRegion,
-                       const std::array<bool, DIMENSION> &axisMask);
-  std::vector<RegionInterface>
-  interfaces(const std::array<bool, DIMENSION> &axisMask);
+  std::vector<RegionInterface *> interfaces(Axis axis) {
+    std::array<bool, DIMENSION> axisMask = {};
+    axisMask[axis] = true;
+    return interfaces(axisMask);
+  }
 
   SliceMatrix getSliceMatrix(Axis a, SliceId sliceId);
   Eigen::Vector2i getCoordsInSlice(Axis a, const Voxel &v) const;
@@ -87,12 +69,12 @@ inline std::ostream &operator<<(std::ostream &os, const Region &r) {
       os << i.regionId << " ";
     os << std::endl;
   }
-  for (Axis d = 0; d < DIMENSION; d++) {
-    os << "PARENTS [" << d << "] ";
-    for (auto i : r.parents[d])
-      os << i.regionId << " ";
-    os << std::endl;
-  }
+  // for (Axis d = 0; d < DIMENSION; d++) {
+  // os << "PARENTS [" << d << "] ";
+  // for (auto i : r.parents[d])
+  //   os << i.regionId << " ";
+  // os << std::endl;
+  // }
   return os;
 }
 

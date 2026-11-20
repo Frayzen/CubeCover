@@ -53,8 +53,7 @@ int main(int argc, char *argv[]) {
 
   Voxel mid = mesh.bounds() / 2;
   for (Axis d = 0; d < DIMENSION; d++) {
-    if (d != 0)
-      mesh.cut(d, mid);
+    mesh.cut(d, mid);
   }
 
   mesh.cut(0, mesh.bounds() / 7);
@@ -63,6 +62,7 @@ int main(int argc, char *argv[]) {
 
   Voxel cut = (3 * mesh.bounds()) / 4;
   cut.z() -= 11;
+  std::cout << "HERE " << std::endl;
   mesh.cut(2, cut);
 
   for (Axis d = 0; d < DIMENSION; d++) {
@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
   std::fill(pathIds.begin(), pathIds.end(), 0);
 
   saveDual("dual.vtu", mesh);
-#define COMPUTEPATHS
+// #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   corners = mesh.findCorners();
   std::vector<std::vector<Voxel>> paths = mesh.findPaths();

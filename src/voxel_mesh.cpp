@@ -79,8 +79,8 @@ static void updateNormals(Region &region) {
   for (Axis a = 0; a < DIMENSION; a++) {
     if (region.children[a].size() == 0)
       region.signedNormals[a] = POSITIVE;
-    else if (region.parents[a].size() == 0)
-      region.signedNormals[a] = NEGATIVE;
+    // else if (region.parents[a].size() == 0)
+    //   region.signedNormals[a] = NEGATIVE;
     else
       region.signedNormals[a] = ZERO;
   }
@@ -111,18 +111,20 @@ Eigen::Vector2i VoxelMesh::getCoordsInSlice(Axis axis,
   return coords;
 }
 
-std::tuple<FlagTensor, std::vector<RegionId>, std::set<RegionId>>
+std::tuple<CutFlagTensor, std::set<RegionId>, std::set<RegionId>,
+           std::set<RegionId>>
 VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   assert(axis >= 0 && axis < DIMENSION);
 
   const Voxel dimensions = bounds();
+  const SliceId splittingSlice = origin[axis];
 
-  FlagTensor visited(dimensions[0], dimensions[1], dimensions[2]);
-  visited.setConstant(false);
+  CutFlagTensor flags(dimensions[0], dimensions[1], dimensions[2]);
+  flags.setConstant(CutFlag::Undefined);
 
-  std::vector<bool> visitedRegions(regions.size(), false);
-  std::vector<RegionId> encounteredRegions;
-  std::set<RegionId> neighouringRegionIds;
+  std::set<RegionId> encounteredRegions;
+  std::set<RegionId> topRegionNeighbors;
+  std::set<RegionId> bottomRegionNeighbors;
 
   // --------------------------------------------------
   // 1. Find the connected cut using a 2D flood fill.
@@ -134,7 +136,8 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   std::queue<Voxel> queue;
 
   if (voxels(origin.x(), origin.y(), origin.z()) == NO_VOXEL)
-    return {visited, encounteredRegions, neighouringRegionIds};
+    return {flags, encounteredRegions, topRegionNeighbors,
+            bottomRegionNeighbors};
 
   queue.push(origin);
 
@@ -172,88 +175,128 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   }
 
   // --------------------------------------------------
-  // 2. Flood fill the 3D mesh without crossing the cut.
+  // 2. Flood fill one side of the cut.
   // --------------------------------------------------
 
-  queue.push(origin);
+  auto floodFill = [&](Voxel seed, CutFlag sideFlag,
+                       std::set<RegionId> &sideNeighbors) {
+    if ((seed.array() < 0).any() || (seed.array() >= dimensions.array()).any())
+      return;
 
-  visited(origin.x(), origin.y(), origin.z()) = true;
+    if (voxels(seed.x(), seed.y(), seed.z()) == NO_VOXEL)
+      return;
 
-  const RegionId originRegion =
-      voxelToRegion(origin.x(), origin.y(), origin.z());
+    // Do not overwrite voxels already assigned to the
+    // other side. A valid separating cut should prevent
+    // the two traversals from overlapping.
+    if (flags(seed.x(), seed.y(), seed.z()) != CutFlag::Undefined)
+      return;
 
-  visitedRegions[originRegion] = true;
-  encounteredRegions.push_back(originRegion);
+    Eigen::Tensor<bool, 3> visited(dimensions[0], dimensions[1], dimensions[2]);
+    visited.setConstant(false);
 
-  while (!queue.empty()) {
-    const Voxel voxel = queue.front();
-    queue.pop();
+    std::queue<Voxel> sideQueue;
 
-    const RegionId currentRegionId =
-        voxelToRegion(voxel.x(), voxel.y(), voxel.z());
+    sideQueue.push(seed);
+    visited(seed.x(), seed.y(), seed.z()) = true;
+    flags(seed.x(), seed.y(), seed.z()) = sideFlag;
 
-    for (Axis neighborAxis = 0; neighborAxis < DIMENSION; ++neighborAxis) {
-      for (int direction : {-1, 1}) {
-        Voxel neighbor = voxel;
-        neighbor[neighborAxis] += direction;
+    const RegionId seedRegion = voxelToRegion(seed.x(), seed.y(), seed.z());
 
-        if ((neighbor.array() < 0).any() ||
-            (neighbor.array() >= dimensions.array()).any())
-          continue;
+    encounteredRegions.insert(seedRegion);
 
-        const auto x = neighbor.x();
-        const auto y = neighbor.y();
-        const auto z = neighbor.z();
+    while (!sideQueue.empty()) {
+      const Voxel voxel = sideQueue.front();
+      sideQueue.pop();
 
-        if (visited(x, y, z))
-          continue;
+      const RegionId currentRegionId =
+          voxelToRegion(voxel.x(), voxel.y(), voxel.z());
 
-        if (voxels(x, y, z) == NO_VOXEL)
-          continue;
+      for (Axis neighborAxis = 0; neighborAxis < DIMENSION; ++neighborAxis) {
 
-        const RegionId neighborRegionId = voxelToRegion(x, y, z);
+        for (int direction : {-1, 1}) {
+          Voxel neighbor = voxel;
+          neighbor[neighborAxis] += direction;
 
-        // Do not change region along the splitting axis.
-        if (neighborRegionId != currentRegionId) {
-          if (neighborAxis == axis) {
-            if (direction == -1)
-              neighouringRegionIds.insert(neighborRegionId);
+          if ((neighbor.array() < 0).any() ||
+              (neighbor.array() >= dimensions.array()).any())
             continue;
-          }
-          const Eigen::Vector2i coords = getCoordsInSlice(axis, voxel);
-          if (!cut(coords.x(), coords.y())) {
-            if (direction == -1)
-              neighouringRegionIds.insert(neighborRegionId);
-            continue;
-          }
-        }
 
-        // Do not cross the cut.
-        if (neighborAxis == axis) {
-          bool crossingCut =
-              (voxel[axis] < origin[axis] && neighbor[axis] >= origin[axis]);
-          crossingCut |=
-              (voxel[axis] >= origin[axis] && neighbor[axis] < origin[axis]);
-          if (crossingCut) {
-            const Eigen::Vector2i coords = getCoordsInSlice(axis, voxel);
-            if (cut(coords.x(), coords.y()))
+          const auto x = neighbor.x();
+          const auto y = neighbor.y();
+          const auto z = neighbor.z();
+
+          if (visited(x, y, z))
+            continue;
+
+          if (voxels(x, y, z) == NO_VOXEL)
+            continue;
+
+          // Do not enter voxels already assigned to
+          // the opposite side.
+          if (flags(x, y, z) != CutFlag::Undefined)
+            continue;
+
+          const RegionId neighborRegionId = voxelToRegion(x, y, z);
+
+          if (neighborRegionId != currentRegionId) {
+
+            // Do not change region along the splitting axis.
+            if (neighborAxis == axis) {
+              sideNeighbors.insert(neighborRegionId);
               continue;
+            }
+
+            // Do not change region outside the projected cut.
+            const Eigen::Vector2i coords = getCoordsInSlice(axis, voxel);
+
+            if (!cut(coords.x(), coords.y())) {
+              sideNeighbors.insert(neighborRegionId);
+              continue;
+            }
           }
+
+          // Do not cross the cut.
+          if (neighborAxis == axis) {
+            const bool crossingCut = (voxel[axis] < splittingSlice &&
+                                      neighbor[axis] >= splittingSlice) ||
+                                     (voxel[axis] >= splittingSlice &&
+                                      neighbor[axis] < splittingSlice);
+
+            if (crossingCut) {
+              const Eigen::Vector2i coords = getCoordsInSlice(axis, voxel);
+
+              if (cut(coords.x(), coords.y()))
+                continue;
+            }
+          }
+
+          visited(x, y, z) = true;
+          flags(x, y, z) = sideFlag;
+
+          if (neighborRegionId != NO_REGION)
+            encounteredRegions.insert(neighborRegionId);
+
+          sideQueue.push(neighbor);
         }
-
-        visited(x, y, z) = true;
-
-        if (!visitedRegions[neighborRegionId]) {
-          visitedRegions[neighborRegionId] = true;
-          encounteredRegions.push_back(neighborRegionId);
-        }
-
-        queue.push(neighbor);
       }
     }
-  }
+  };
 
-  return {visited, encounteredRegions, neighouringRegionIds};
+  // --------------------------------------------------
+  // 3. Traverse the top and bottom sides independently.
+  // --------------------------------------------------
+
+  // Top side: origin and positive axis direction.
+  floodFill(origin, CutFlag::TopRegion, topRegionNeighbors);
+
+  // Bottom side: immediately below the splitting slice.
+  Voxel bottomOrigin = origin;
+  bottomOrigin[axis]--;
+
+  floodFill(bottomOrigin, CutFlag::BottomRegion, bottomRegionNeighbors);
+
+  return {flags, encounteredRegions, topRegionNeighbors, bottomRegionNeighbors};
 }
 
 bool VoxelMesh::cut(Axis axis, Voxel origin) {
@@ -261,38 +304,73 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   SliceId splittingSlice = origin[axis];
   std::array<bool, DIMENSION> mask = {true, true, true};
   mask[axis] = false;
-  std::vector<RegionId> oldRegionToNewRegion(regions.size(), NO_REGION);
-  auto [flagTensor, cutRegionIds, neighouringRegionIds] =
+  auto [flags, encounteredRegions, topRegionNeighbors, bottomRegionNeighbors] =
       computeCutRegions(axis, origin);
-  RegionId firstNewRegion = regions.size();
-  for (RegionId &cutRegionId : cutRegionIds) {
-    RegionId newRegionId = regions.size();
-    Region &newRegion = regions.emplace_back(regions[cutRegionId]);
-    Region &r = regions[cutRegionId];
-    updateNormals(r);
-    updateNormals(newRegion);
 
-    oldRegionToNewRegion[r.id] = newRegionId;
-    newRegion.id = newRegionId;
+  for (auto r : topRegionNeighbors) {
+    std::cout << "TOP VOLUME NEIGH " << r << std::endl;
+  }
 
+  for (auto r : bottomRegionNeighbors) {
+    std::cout << "BOT VOLUME NEIGH " << r << std::endl;
+  }
+
+  std::vector<RegionId> cutRegionToNewRegion(regions.size(), NO_REGION);
+  for (RegionId cutRegionId : encounteredRegions) {
+    Region &newRegion = regions.emplace_back(regions.size(), *this);
+    Region &cutRegion = regions[cutRegionId];
+    cutRegionToNewRegion[cutRegionId] = newRegion.id;
+    std::vector<Voxel> cutRegionVoxels;
     std::vector<Voxel> newRegionVoxels;
-    std::vector<Voxel> oldRegionVoxels;
-    for (Voxel v : r) {
-      if (flagTensor(v.x(), v.y(), v.z())) {
+    for (Voxel v : cutRegion) {
+      if (flags(v.x(), v.y(), v.z()) == CutFlag::TopRegion) {
         newRegionVoxels.push_back(v);
-        voxelToRegion(v.x(), v.y(), v.z()) = newRegionId;
-      } else
-        oldRegionVoxels.push_back(v);
+        voxelToRegion(v.x(), v.y(), v.z()) = newRegion.id;
+      } else {
+        assert(flags(v.x(), v.y(), v.z()) == CutFlag::BottomRegion);
+        cutRegionVoxels.push_back(v);
+      }
     }
-
-    r.voxels = oldRegionVoxels;
+    cutRegion.voxels = cutRegionVoxels;
     newRegion.voxels = newRegionVoxels;
-    r.addCut(newRegion, axis, neighouringRegionIds);
+    cutRegion.updateBounds();
+    newRegion.updateBounds();
   }
-  oldRegionToNewRegion.resize(regions.size(), NO_REGION);
-  for (RegionId rId = firstNewRegion; rId < regions.size(); rId++) {
-    regions[rId].updateAdjacency(oldRegionToNewRegion, mask);
+
+  for (RegionId cutRegionId : encounteredRegions) {
+    Region &newRegion = regions[cutRegionToNewRegion[cutRegionId]];
+    Region &cutRegion = regions[cutRegionId];
+
+    newRegion.children[axis] = {RegionInterface(axis, NEGATIVE, cutRegion.id)};
+    for (Axis a = 0; a < DIMENSION; a++) {
+      std::vector<RegionInterface> newCutRegionChildren;
+      for (RegionInterface &i : cutRegion.children[a]) {
+        bool partOfCutRegions = encounteredRegions.contains(i.regionId);
+        bool partOfTopRegions = partOfCutRegions;
+        partOfTopRegions |= topRegionNeighbors.contains(i.regionId);
+        bool partOfBottomRegions = partOfCutRegions;
+        partOfBottomRegions |= bottomRegionNeighbors.contains(i.regionId);
+        if (partOfTopRegions) {
+          RegionInterface &created = newRegion.children[a].emplace_back(i);
+          if (cutRegionToNewRegion[created.regionId] != NO_REGION)
+            created.regionId = cutRegionToNewRegion[i.regionId];
+        }
+        if (partOfBottomRegions)
+          newCutRegionChildren.push_back(i);
+      }
+      cutRegion.children[a] = newCutRegionChildren;
+    }
   }
+
+  for (RegionId neighborId : topRegionNeighbors) {
+    for (RegionInterface *i : regions[neighborId].interfaces()) {
+      if (cutRegionToNewRegion[i->regionId] != NO_REGION)
+        i->regionId = cutRegionToNewRegion[i->regionId];
+    }
+  }
+
+  for (Region &r : regions)
+    updateNormals(r);
   return true;
 }
 
@@ -573,6 +651,16 @@ void VoxelMesh::saveDotfile(Axis a, std::string filename) {
   for (const Region &region : regions) {
     for (const RegionInterface &child : region.children[a]) {
       file << "  " << region.id << " -> " << child.regionId << ";\n";
+
+      // bool foundParent = false;
+      // for (const RegionInterface &parent :
+      // regions[child.regionId].parents[a]) {
+      //   if (parent.regionId == region.id) {
+      //     foundParent = true;
+      //     break;
+      //   }
+      // }
+      // assert(foundParent);
     }
   }
 
