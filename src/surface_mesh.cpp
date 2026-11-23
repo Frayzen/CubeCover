@@ -218,6 +218,8 @@ std::vector<SurfacePath> SurfaceMesh::findPaths() {
         const Region &adj = m.regions[adjId];
 
         SurfacePath path;
+        path.regions[0] = rId;
+        path.regions[1] = adjId;
 
         path.normal = interface.normal;
 
@@ -268,13 +270,14 @@ std::vector<Axis> SurfaceMesh::colorize() const {
       continue;
 
     // Axes of paths bordering this component.
-    std::array<bool, DIMENSION> encountered{};
+    std::array<size_t, DIMENSION> encountered{};
 
     std::vector<QuadId> component;
     std::queue<QuadId> queue;
 
     visited[seed] = true;
     queue.push(seed);
+    RegionId seedRegionId = quadToRegion[seed];
 
     // ----------------------------------------------------
     // Flood fill
@@ -300,9 +303,12 @@ std::vector<Axis> SurfaceMesh::colorize() const {
         if (!edgeToPaths[eId].empty()) {
 
           for (PathId pId : edgeToPaths[eId]) {
-
             if (pId >= paths.size())
               throw std::runtime_error("SurfaceMesh: invalid path index.");
+
+            if (paths[pId].regions[0] != seedRegionId &&
+                paths[pId].regions[1] != seedRegionId)
+              continue;
 
             const Axis a = paths[pId].normal;
             const std::size_t axis = static_cast<std::size_t>(a);
@@ -310,7 +316,7 @@ std::vector<Axis> SurfaceMesh::colorize() const {
             if (axis >= DIMENSION)
               throw std::runtime_error("SurfaceMesh: invalid path normal.");
 
-            encountered[axis] = true;
+            encountered[axis]++;
           }
 
           continue;
@@ -339,24 +345,16 @@ std::vector<Axis> SurfaceMesh::colorize() const {
     // Find the missing axis
     // ----------------------------------------------------
 
+    // TODO improve this heuristic
     Axis missingAxis = NO_AXIS;
-    std::size_t encounteredCount = 0;
+    size_t minimumCounts = std::numeric_limits<size_t>::max();
 
     for (Axis a = 0; a < DIMENSION; ++a) {
 
-      if (encountered[a])
-        ++encounteredCount;
-      else
-        missingAxis = a;
-    }
-
-    // Every component must be bounded by exactly two axes.
-    if (encounteredCount != DIMENSION - 1) {
-
-      throw std::runtime_error(
-          "SurfaceMesh: flooded component is bordered by " +
-          std::to_string(encounteredCount) + " distinct path axes; expected " +
-          std::to_string(DIMENSION - 1) + ".");
+      if (encountered[a] >= minimumCounts)
+        continue;
+      minimumCounts = encountered[a];
+      missingAxis = a;
     }
 
     // ----------------------------------------------------

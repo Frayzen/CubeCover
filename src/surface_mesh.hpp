@@ -1,12 +1,14 @@
 #ifndef SURFACE_MESH_HPP
 #define SURFACE_MESH_HPP
 #include "ids.hpp"
+#include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
 #include <vector>
 
 struct SurfacePath {
   std::vector<EdgeId> edges;
   Axis normal;
+  RegionId regions[2];
 };
 
 enum FacePathFlag : unsigned char {
@@ -30,7 +32,9 @@ struct SurfaceMesh {
   // Quad connectivity
   std::vector<QuadEdges> quadToEdges;
   std::vector<RegionId> quadToRegion;
+  std::vector<Voxel> quadToVoxel;
   std::vector<Axis> quadToNormal;
+  std::vector<IntegerSign> quadToNormalSign;
   std::vector<std::vector<QuadId>> regionToQuads;
 
   // Edge connectivity

@@ -79,7 +79,8 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
   // --------------------------------------------------------
 
   auto addQuad = [&](const std::array<GridVertex, 4> &corners,
-                     RegionId regionId, Axis normal) {
+                     RegionId regionId, Axis normal, Voxel voxel,
+                     IntegerSign normalSign) {
     Quad quad;
 
     QuadEdges quadEdges;
@@ -99,7 +100,9 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
     surface.quads.push_back(quad);
     surface.quadToEdges.push_back(quadEdges);
     surface.quadToRegion.push_back(regionId);
+    surface.quadToVoxel.push_back(voxel);
     surface.quadToNormal.push_back(normal);
+    surface.quadToNormalSign.push_back(normalSign);
     surface.regionToQuads[regionId].push_back(qId);
 
     for (EdgeId eId : quadEdges)
@@ -136,11 +139,13 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
         const SliceId yp = y + 1;
         const SliceId zp = z + 1;
 
+        Voxel v(x, y, z);
+
         // LEFT (-X)
         if (x == 0 || !isOccupied(x - 1, y, z)) {
 
           addQuad({{{{x, y, z}}, {{x, y, zp}}, {{x, yp, zp}}, {{x, yp, z}}}},
-                  rId, 0);
+                  rId, 0, v, POSITIVE);
         }
 
         // RIGHT (+X)
@@ -148,14 +153,14 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{xp, y, z}}, {{xp, yp, z}}, {{xp, yp, zp}}, {{xp, y, zp}}}},
-              rId, 0);
+              rId, 0, v, NEGATIVE);
         }
 
         // FRONT (-Y)
         if (y == 0 || !isOccupied(x, y - 1, z)) {
 
           addQuad({{{{x, y, z}}, {{xp, y, z}}, {{xp, y, zp}}, {{x, y, zp}}}},
-                  rId, 1);
+                  rId, 1, v, POSITIVE);
         }
 
         // BACK (+Y)
@@ -163,14 +168,14 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{x, yp, z}}, {{x, yp, zp}}, {{xp, yp, zp}}, {{xp, yp, z}}}},
-              rId, 1);
+              rId, 1, v, NEGATIVE);
         }
 
         // BOTTOM (-Z)
         if (z == 0 || !isOccupied(x, y, z - 1)) {
 
           addQuad({{{{x, y, z}}, {{x, yp, z}}, {{xp, yp, z}}, {{xp, y, z}}}},
-                  rId, 2);
+                  rId, 2, v, POSITIVE);
         }
 
         // TOP (+Z)
@@ -178,7 +183,7 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{x, y, zp}}, {{xp, y, zp}}, {{xp, yp, zp}}, {{x, yp, zp}}}},
-              rId, 2);
+              rId, 2, v, NEGATIVE);
         }
       }
     }
@@ -216,8 +221,8 @@ void SurfaceMesh::exportMesh(std::string filename) const {
   vtkNew<vtkIntArray> cellTypes;
   cellTypes->SetName("CellType");
 
-  // vtkNew<vtkIntArray> quadColor;
-  // quadColor->SetName("QuadColor");
+  vtkNew<vtkIntArray> quadColor;
+  quadColor->SetName("QuadColor");
 
   vtkNew<vtkIntArray> regionIds;
   regionIds->SetName("RegionId");
@@ -234,7 +239,10 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
   vtkNew<vtkQuad> quad;
 
-  // auto color = colorize();
+#define COLORIZE
+#ifdef COLORIZE
+  std::vector<Axis> color = colorize();
+#endif
   for (QuadId qId = 0; qId < quads.size(); ++qId) {
 
     const auto &face = quads[qId];
@@ -252,7 +260,9 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     cellTypes->InsertNextValue(0);
     regionIds->InsertNextValue(static_cast<int>(quadToRegion[qId]));
-    // quadColor->InsertNextValue(color[qId]);
+#ifdef COLORIZE
+    quadColor->InsertNextValue(color[qId]);
+#endif
 
     pathIds->InsertNextValue(-1);
     pathNormals->InsertNextValue(-1);
@@ -277,7 +287,9 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     cellTypes->InsertNextValue(1);
     regionIds->InsertNextValue(static_cast<int>(rId));
-    // quadColor->InsertNextValue(-1);
+#ifdef COLORIZE
+    quadColor->InsertNextValue(-1);
+#endif
 
     pathIds->InsertNextValue(-1);
     pathNormals->InsertNextValue(-1);
@@ -330,7 +342,9 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
       cellTypes->InsertNextValue(2);
       regionIds->InsertNextValue(-1);
-      // quadColor->InsertNextValue(-1);
+#ifdef COLORIZE
+      quadColor->InsertNextValue(-1);
+#endif
 
       pathIds->InsertNextValue(static_cast<int>(pId));
       pathNormals->InsertNextValue(static_cast<int>(path.normal));
@@ -345,6 +359,9 @@ void SurfaceMesh::exportMesh(std::string filename) const {
   grid->GetCellData()->AddArray(regionIds);
   grid->GetCellData()->AddArray(pathIds);
   grid->GetCellData()->AddArray(pathNormals);
+#ifdef COLORIZE
+  grid->GetCellData()->AddArray(quadColor);
+#endif
   grid->GetPointData()->AddArray(isCorner);
 
   // ========================================================
