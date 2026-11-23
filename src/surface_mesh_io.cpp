@@ -34,15 +34,11 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
   // --------------------------------------------------------
 
   auto getVertexId = [&](const GridVertex &p) -> NodeId {
-    auto [it, inserted] = vertexToId.emplace(p, surface.vertices.size());
+    auto [it, inserted] = vertexToId.emplace(p, surface.nodes.size());
 
     if (inserted) {
 
-      Vertex &v = surface.vertices.emplace_back(static_cast<double>(p[0]),
-                                                static_cast<double>(p[1]),
-                                                static_cast<double>(p[2]));
-      v *= m.voxelSize;
-
+      Voxel &v = surface.nodes.emplace_back(p[0], p[1], p[2]);
       surface.vertexToEdges.emplace_back();
     }
 
@@ -79,7 +75,7 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
   // --------------------------------------------------------
 
   auto addQuad = [&](const std::array<GridVertex, 4> &corners,
-                     RegionId regionId, Axis normal, Voxel voxel) {
+                     RegionId regionId, Axis normal) {
     Quad quad;
 
     QuadEdges quadEdges;
@@ -99,7 +95,6 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
     surface.quads.push_back(quad);
     surface.quadToEdges.push_back(quadEdges);
     surface.quadToRegion.push_back(regionId);
-    surface.quadToVoxel.push_back(voxel);
     surface.quadToNormal.push_back(normal);
     surface.regionToQuads[regionId].push_back(qId);
 
@@ -137,13 +132,11 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
         const SliceId yp = y + 1;
         const SliceId zp = z + 1;
 
-        Voxel v(x, y, z);
-
         // LEFT (-X)
         if (x == 0 || !isOccupied(x - 1, y, z)) {
 
           addQuad({{{{x, y, z}}, {{x, y, zp}}, {{x, yp, zp}}, {{x, yp, z}}}},
-                  rId, 0, v);
+                  rId, 0);
         }
 
         // RIGHT (+X)
@@ -151,14 +144,14 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{xp, y, z}}, {{xp, yp, z}}, {{xp, yp, zp}}, {{xp, y, zp}}}},
-              rId, 0, v);
+              rId, 0);
         }
 
         // FRONT (-Y)
         if (y == 0 || !isOccupied(x, y - 1, z)) {
 
           addQuad({{{{x, y, z}}, {{xp, y, z}}, {{xp, y, zp}}, {{x, y, zp}}}},
-                  rId, 1, v);
+                  rId, 1);
         }
 
         // BACK (+Y)
@@ -166,14 +159,14 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{x, yp, z}}, {{x, yp, zp}}, {{xp, yp, zp}}, {{xp, yp, z}}}},
-              rId, 1, v);
+              rId, 1);
         }
 
         // BOTTOM (-Z)
         if (z == 0 || !isOccupied(x, y, z - 1)) {
 
           addQuad({{{{x, y, z}}, {{x, yp, z}}, {{xp, yp, z}}, {{xp, y, z}}}},
-                  rId, 2, v);
+                  rId, 2);
         }
 
         // TOP (+Z)
@@ -181,7 +174,7 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{x, y, zp}}, {{xp, y, zp}}, {{xp, yp, zp}}, {{x, yp, zp}}}},
-              rId, 2, v);
+              rId, 2);
         }
       }
     }
@@ -205,10 +198,10 @@ void SurfaceMesh::exportMesh(std::string filename) const {
   }
 
   vtkNew<vtkPoints> points;
-  points->SetNumberOfPoints(static_cast<vtkIdType>(vertices.size()));
+  points->SetNumberOfPoints(static_cast<vtkIdType>(nodes.size()));
 
-  for (NodeId i = 0; i < vertices.size(); ++i) {
-    const Vertex &v = vertices[i];
+  for (NodeId i = 0; i < nodes.size(); ++i) {
+    const Vertex &v = nodes[i].cast<double>() * m.voxelSize;
 
     points->SetPoint(static_cast<vtkIdType>(i), v.x(), v.y(), v.z());
   }
@@ -244,7 +237,7 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     for (int i = 0; i < NB_NODE_PER_QUAD; ++i) {
 
-      if (face[i] >= vertices.size()) {
+      if (face[i] >= nodes.size()) {
         throw std::runtime_error("SurfaceMesh: invalid quad vertex index.");
       }
 
@@ -271,7 +264,7 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     const NodeId vertexId = regionCorners[rId];
 
-    if (vertexId >= vertices.size()) {
+    if (vertexId >= nodes.size()) {
       throw std::runtime_error("SurfaceMesh: invalid corner vertex index.");
     }
 
@@ -293,15 +286,15 @@ void SurfaceMesh::exportMesh(std::string filename) const {
   vtkNew<vtkIntArray> isCorner;
   isCorner->SetName("IsCorner");
   isCorner->SetNumberOfComponents(1);
-  isCorner->SetNumberOfTuples(static_cast<vtkIdType>(vertices.size()));
+  isCorner->SetNumberOfTuples(static_cast<vtkIdType>(nodes.size()));
 
-  // Initialize all vertices as non-corners.
-  for (vtkIdType i = 0; i < static_cast<vtkIdType>(vertices.size()); ++i)
+  // Initialize all nodes as non-corners.
+  for (vtkIdType i = 0; i < static_cast<vtkIdType>(nodes.size()); ++i)
     isCorner->SetValue(i, 0);
 
   // Mark region corners.
   for (NodeId vertexId : regionCorners) {
-    if (vertexId >= vertices.size())
+    if (vertexId >= nodes.size())
       throw std::runtime_error("SurfaceMesh: invalid corner vertex index.");
 
     isCorner->SetValue(static_cast<vtkIdType>(vertexId), 1);
@@ -323,7 +316,7 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
       const auto &edge = edges[eId];
 
-      if (edge[0] >= vertices.size() || edge[1] >= vertices.size()) {
+      if (edge[0] >= nodes.size() || edge[1] >= nodes.size()) {
         throw std::runtime_error("SurfaceMesh: invalid edge vertex index.");
       }
 

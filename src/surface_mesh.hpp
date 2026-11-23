@@ -1,5 +1,6 @@
 #ifndef SURFACE_MESH_HPP
 #define SURFACE_MESH_HPP
+#include "constants.hpp"
 #include "ids.hpp"
 #include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
@@ -25,14 +26,14 @@ struct SurfaceMesh {
 
   const VoxelMesh &m;
 
-  std::vector<Vertex> vertices;
+  std::vector<Voxel> nodes;
   std::vector<Edge> edges;
   std::vector<Quad> quads;
 
   // Quad connectivity
   std::vector<QuadEdges> quadToEdges;
   std::vector<RegionId> quadToRegion;
-  std::vector<Voxel> quadToVoxel;
+  std::vector<std::array<Voxel, NB_NODE_PER_QUAD>> quadToVoxels;
   std::vector<Axis> quadToNormal;
   std::vector<std::vector<QuadId>> regionToQuads;
 

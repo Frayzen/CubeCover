@@ -10,7 +10,7 @@ using Axis = int;
 const Axis NO_AXIS = -1;
 enum IntegerSign { POSITIVE, NEGATIVE, ZERO, UNDEFINED };
 
-inline int getIntegerSignValue(IntegerSign &a) {
+inline int getIntegerSignValue(const IntegerSign &a) {
   switch (a) {
   case POSITIVE:
     return 1;

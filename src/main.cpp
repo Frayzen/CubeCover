@@ -81,7 +81,9 @@ int main(int argc, char *argv[]) {
   SurfaceMesh surfaceMesh = generateSurface(mesh);
   surfaceMesh.findAxisConstraints();
   surfaceMesh.exportMesh("surface.vtu");
-  for (Region r : mesh.regions) {
+  for (Region &r : mesh.regions) {
+    if (r.id != 18)
+      continue;
     Cubifier cubifier(surfaceMesh, r.id);
     cubifier.exportMesh("cubifier" + std::to_string(r.id) + ".vtu");
   }

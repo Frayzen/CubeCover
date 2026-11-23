@@ -52,7 +52,7 @@ NodeId SurfaceMesh::findCorner(RegionId regionId) const {
   for (QuadId quadId : regionToQuads[regionId]) {
     for (EdgeId edgeId : quadToEdges[quadId]) {
       for (NodeId vertexId : edges[edgeId]) {
-        const Vertex &v = vertices[vertexId];
+        const Vertex &v = nodes[vertexId].cast<double>() * m.voxelSize;
         const double dist = (v - target).norm();
 
         if (dist < minDist) {
@@ -112,11 +112,11 @@ std::vector<EdgeId> SurfaceMesh::findShortestPath(
 
   const double INF = std::numeric_limits<double>::max();
 
-  std::vector<double> dist(vertices.size(), INF);
+  std::vector<double> dist(nodes.size(), INF);
 
-  std::vector<NodeId> previous(vertices.size(), NO_NODE);
+  std::vector<NodeId> previous(nodes.size(), NO_NODE);
 
-  std::vector<EdgeId> previousEdge(vertices.size(), NO_EDGE);
+  std::vector<EdgeId> previousEdge(nodes.size(), NO_EDGE);
 
   std::priority_queue<QueueItem, std::vector<QueueItem>,
                       std::greater<QueueItem>>
@@ -144,7 +144,7 @@ std::vector<EdgeId> SurfaceMesh::findShortestPath(
 
       const NodeId neighbor = edge[0] == current ? edge[1] : edge[0];
 
-      Vertex dir = vertices[current] - vertices[neighbor];
+      Voxel dir = nodes[current] - nodes[neighbor];
       double weight = dir.norm();
 
       std::array<bool, DIMENSION> foundAxis = {false, false, false};
