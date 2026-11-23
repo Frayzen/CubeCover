@@ -28,9 +28,9 @@ NodeId SurfaceMesh::findCorner(RegionId regionId) const {
 
   for (Axis d = 0; d < DIMENSION; ++d) {
 
-    assert(r.signedNormals[d] != UNDEFINED);
+    assert(r.boundaryNormals[d] != UNDEFINED);
 
-    if (r.signedNormals[d] == ZERO) {
+    if (r.boundaryNormals[d] == ZERO) {
 
       target[d] = (r.startSlices[d] + r.endSlices[d]) / 2.0;
 
@@ -40,7 +40,7 @@ NodeId SurfaceMesh::findCorner(RegionId regionId) const {
     ++numNormals;
 
     target[d] =
-        r.signedNormals[d] == POSITIVE ? r.endSlices[d] : r.startSlices[d];
+        r.boundaryNormals[d] == POSITIVE ? r.endSlices[d] : r.startSlices[d];
   }
   target *= m.voxelSize;
 
@@ -227,7 +227,7 @@ std::vector<SurfacePath> SurfaceMesh::findPaths() {
         for (Axis a = 0; a < DIMENSION; a++) {
           if (a == interface.normal)
             axisPenality[a] = 0;
-          else if (adj.signedNormals[a] != r.signedNormals[a])
+          else if (adj.boundaryNormals[a] != r.boundaryNormals[a])
             axisPenality[a] = 1;
           else
             axisPenality[a] = 2;
@@ -249,7 +249,9 @@ std::vector<SurfacePath> SurfaceMesh::findPaths() {
   return paths;
 }
 
-std::vector<Axis> SurfaceMesh::colorize() const {
+std::vector<Axis> SurfaceMesh::findAxisConstraints() {
+  quadToAxisConstraint.clear();
+  findPaths();
 
   if (quadToEdges.size() != quads.size())
     throw std::runtime_error("SurfaceMesh: quadToEdges size mismatch.");
@@ -364,6 +366,6 @@ std::vector<Axis> SurfaceMesh::colorize() const {
     for (QuadId qId : component)
       colors[qId] = missingAxis;
   }
-
-  return colors;
+  quadToAxisConstraint = colors;
+  return quadToAxisConstraint;
 }

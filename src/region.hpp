@@ -32,7 +32,10 @@ struct Region {
   Eigen::Vector3<SliceId> startSlices;
   Eigen::Vector3<SliceId> endSlices;
 
-  std::array<IntegerSign, DIMENSION> signedNormals = {ZERO, ZERO, ZERO};
+  // those normals is ZERO everywhere but on the extermity of the region graph
+  std::array<IntegerSign, DIMENSION> boundaryNormals = {ZERO, ZERO, ZERO};
+  // those normals is never zero and represents the existing faces of the reigon
+  std::array<IntegerSign, DIMENSION> facesNormals = {ZERO, ZERO, ZERO};
 
   std::pair<std::vector<Voxel>, std::vector<Voxel>>
   splitByFlagMatrix(const FlagMatrix &flagMatrix, const SliceId sliceId,

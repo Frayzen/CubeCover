@@ -34,8 +34,9 @@ struct SurfaceMesh {
   std::vector<RegionId> quadToRegion;
   std::vector<Voxel> quadToVoxel;
   std::vector<Axis> quadToNormal;
-  std::vector<IntegerSign> quadToNormalSign;
   std::vector<std::vector<QuadId>> regionToQuads;
+
+  std::vector<Axis> quadToAxisConstraint;
 
   // Edge connectivity
   std::vector<std::vector<QuadId>> edgeToQuads;
@@ -67,7 +68,7 @@ struct SurfaceMesh {
   std::vector<SurfacePath> findPaths();
 
   void exportMesh(std::string filename) const;
-  std::vector<Axis> colorize() const;
+  std::vector<Axis> findAxisConstraints();
 };
 
 SurfaceMesh generateSurface(const VoxelMesh &m);

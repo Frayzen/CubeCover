@@ -1,3 +1,4 @@
+#include "cubifier.hpp"
 #include "dual_saver.hpp"
 #include "ids.hpp"
 #include "mesh_loader.hpp"
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 int main(int argc, char *argv[]) {
   if (argc != 2) {
@@ -65,7 +67,7 @@ int main(int argc, char *argv[]) {
   cut.z() -= 11;
   mesh.cut(2, cut);
 
-  mesh.updateNormals();
+  mesh.updateBoundaryNormals();
 
   for (Axis d = 0; d < DIMENSION; d++) {
     mesh.saveDotfile(d, "region_adjacency" + std::to_string(d) + ".dot");
@@ -77,8 +79,13 @@ int main(int argc, char *argv[]) {
 #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   SurfaceMesh surfaceMesh = generateSurface(mesh);
-  surfaceMesh.findPaths();
+  surfaceMesh.findAxisConstraints();
   surfaceMesh.exportMesh("surface.vtu");
+  for (Region r : mesh.regions) {
+    Cubifier cubifier(surfaceMesh, r.id);
+    cubifier.exportMesh("cubifier" + std::to_string(r.id) + ".vtu");
+  }
+
 #endif
 
   VoxelMeshSaver saver(mesh);
@@ -97,6 +104,10 @@ int main(int argc, char *argv[]) {
   std::vector<size_t> colors(mesh.nbVoxel);
   std::fill(colors.begin(), colors.end(), NO_REGION);
 
+  std::vector<double> boundaryXNormal(mesh.nbVoxel);
+  std::vector<double> boundaryYNormal(mesh.nbVoxel);
+  std::vector<double> noundaryZNormal(mesh.nbVoxel);
+
   std::vector<double> xNormal(mesh.nbVoxel);
   std::vector<double> yNormal(mesh.nbVoxel);
   std::vector<double> zNormal(mesh.nbVoxel);
@@ -111,9 +122,15 @@ int main(int argc, char *argv[]) {
         RegionId regionId = mesh.voxelToRegion(i, j, k);
         Region &region = mesh.regions[regionId];
         colors[id] = regionId;
-        xNormal[id] = getIntegerSignValue(region.signedNormals[0]);
-        yNormal[id] = getIntegerSignValue(region.signedNormals[1]);
-        zNormal[id] = getIntegerSignValue(region.signedNormals[2]);
+
+        boundaryXNormal[id] = getIntegerSignValue(region.boundaryNormals[0]);
+        boundaryYNormal[id] = getIntegerSignValue(region.boundaryNormals[1]);
+        noundaryZNormal[id] = getIntegerSignValue(region.boundaryNormals[2]);
+
+        xNormal[id] = getIntegerSignValue(region.facesNormals[0]);
+        yNormal[id] = getIntegerSignValue(region.facesNormals[1]);
+        zNormal[id] = getIntegerSignValue(region.facesNormals[2]);
+
         boundaryFlag[id] = mesh.voxelBoundaryFlag(i, j, k);
 
         allowedCutX[id] = mesh.isCutAllowed(0, v);
@@ -125,6 +142,9 @@ int main(int argc, char *argv[]) {
 
   saver.addField("boundaryFlag", boundaryFlag);
   saver.addField("region", colors);
+  saver.addField("xBoundaryNormal", boundaryXNormal);
+  saver.addField("yBoundaryNormal", boundaryYNormal);
+  saver.addField("zBoundaryNormal", noundaryZNormal);
   saver.addField("xNormal", xNormal);
   saver.addField("yNormal", yNormal);
   saver.addField("zNormal", zNormal);

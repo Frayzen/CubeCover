@@ -75,23 +75,41 @@ void VoxelMesh::tetrahedraVoxels(const Vertex &A, const Vertex &B,
   }
 }
 
-void VoxelMesh::updateNormals() {
-  std::vector<std::array<bool, DIMENSION>> hasParents(regions.size(),
-                                                      {false, false, false});
+void VoxelMesh::updateBoundaryNormals() {
+  std::vector<std::array<RegionId, DIMENSION>> parents(
+      regions.size(), {NO_REGION, NO_REGION, NO_REGION});
   for (Region &region : regions) {
     for (Axis a = 0; a < DIMENSION; a++)
       for (RegionInterface &i : region.children[a])
-        hasParents[i.regionId][a] = true;
+        parents[i.regionId][a] = region.id;
   }
-  for (Region &region : regions)
+  for (Region &region : regions) {
     for (Axis a = 0; a < DIMENSION; a++) {
+      // update boundary normal
       if (region.children[a].size() == 0)
-        region.signedNormals[a] = NEGATIVE;
-      else if (!hasParents[region.id][a])
-        region.signedNormals[a] = POSITIVE;
+        region.boundaryNormals[a] = NEGATIVE;
+      else if (parents[region.id][a] == NO_REGION)
+        region.boundaryNormals[a] = POSITIVE;
       else
-        region.signedNormals[a] = ZERO;
+        region.boundaryNormals[a] = ZERO;
     }
+  }
+  for (Region &region : regions) {
+    region.facesNormals = region.boundaryNormals;
+    for (Axis a = 0; a < DIMENSION; a++) {
+      if (region.facesNormals[a] == ZERO) {
+        Axis curAxis = a;
+        do {
+          curAxis = (curAxis + 1) % DIMENSION;
+          RegionId layerParentId = region.id;
+          while (parents[layerParentId][a] != NO_REGION)
+            layerParentId = parents[layerParentId][a];
+          region.facesNormals[a] = regions[layerParentId].boundaryNormals[a];
+        } while (region.facesNormals[a] == ZERO && curAxis != a);
+        assert(region.facesNormals[a] != ZERO);
+      }
+    }
+  }
 }
 
 Eigen::Vector2i VoxelMesh::getSliceSize(Axis axis) const {
@@ -315,14 +333,6 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   auto [flags, encounteredRegions, topRegionNeighbors, bottomRegionNeighbors] =
       computeCutRegions(axis, origin);
 
-  // for (auto r : topRegionNeighbors) {
-  //   std::cout << "TOP VOLUME NEIGH " << r << std::endl;
-  // }
-
-  // for (auto r : bottomRegionNeighbors) {
-  //   std::cout << "BOT VOLUME NEIGH " << r << std::endl;
-  // }
-
   std::vector<RegionId> cutRegionToNewRegion(regions.size(), NO_REGION);
   for (RegionId cutRegionId : encounteredRegions) {
     Region &newRegion = regions.emplace_back(regions.size(), *this);
@@ -438,8 +448,8 @@ void VoxelMesh::buildMesh() {
   }
 
   Region initialRegion(0, *this);
-
-  initialRegion.signedNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
+  initialRegion.boundaryNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
+  initialRegion.facesNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
 
   for (Axis d = 0; d < DIMENSION; d++) {
     initialRegion.startSlices[d] = 0;
@@ -468,9 +478,9 @@ Voxel VoxelMesh::findCorner(Region &r) {
 
   for (Axis d = 0; d < DIMENSION; d++) {
 
-    assert(r.signedNormals[d] != UNDEFINED);
+    assert(r.boundaryNormals[d] != UNDEFINED);
 
-    if (r.signedNormals[d] == ZERO) {
+    if (r.boundaryNormals[d] == ZERO) {
       target[d] = (r.startSlices[d] + r.endSlices[d]) / 2;
       continue;
     }
@@ -478,7 +488,7 @@ Voxel VoxelMesh::findCorner(Region &r) {
     numNormals++;
 
     target[d] =
-        r.signedNormals[d] == POSITIVE ? r.endSlices[d] : r.startSlices[d];
+        r.boundaryNormals[d] == POSITIVE ? r.endSlices[d] : r.startSlices[d];
   }
 
   assert(numNormals > 0);
