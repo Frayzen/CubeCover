@@ -170,7 +170,7 @@ void Cubifier::build() {
   // 3. Laplacian smoothing.
   // --------------------------------------------------
 
-  constexpr size_t iterations = 1;
+  constexpr size_t iterations = 100;
 
   for (size_t iteration = 0; iteration < iterations; ++iteration) {
 
@@ -179,30 +179,30 @@ void Cubifier::build() {
 
     // Jacobi iteration: read from vertices and write
     // into nextVertices.
-    // auto nextVertices = vertices;
+    auto nextVertices = vertices;
 
-    // for (NodeId id = 0; id < vertices.size(); ++id) {
+    for (NodeId id = 0; id < vertices.size(); ++id) {
 
-    //   if (constrainedFlag[id])
-    //     continue;
+      if (constrainedFlag[id])
+        continue;
 
-    //   for (int axis = 0; axis < DIMENSION; ++axis) {
+      for (int axis = 0; axis < DIMENSION; ++axis) {
 
-    //     double sum = 0.0;
+        double sum = 0.0;
 
-    //     for (NodeId neighbourId : neighbours[id]) {
-    //       sum += vertices[neighbourId][axis];
-    //     }
+        for (NodeId neighbourId : neighbours[id]) {
+          sum += vertices[neighbourId][axis];
+        }
 
-    //     nextVertices[id][axis] = sum / neighbours[id].size();
-    //   }
-    // }
+        nextVertices[id][axis] = sum / neighbours[id].size();
+      }
+    }
 
-    // vertices.swap(nextVertices);
+    vertices.swap(nextVertices);
   }
 
   // Reapply constraints after the final smoothing iteration.
-  // applyConstraints(nodeIds, start, constrainedFlag, true);
+  applyConstraints(nodeIds, start, constrainedFlag, true);
 }
 
 void Cubifier::exportMesh(std::string filename) const {
