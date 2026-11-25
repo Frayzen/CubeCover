@@ -2,6 +2,7 @@
 #define SURFACE_MESH_HPP
 #include "constants.hpp"
 #include "ids.hpp"
+#include "primal_region.hpp"
 #include "signed_axis.hpp"
 #include "voxel_mesh.hpp"
 #include <vector>
@@ -9,7 +10,7 @@
 struct SurfacePath {
   std::vector<EdgeId> edges;
   Axis normal;
-  RegionId regions[2];
+  DualRegionId regions[2];
 };
 
 enum FacePathFlag : unsigned char {
@@ -22,8 +23,30 @@ using Edge = std::array<NodeId, 2>;
 using Quad = std::array<NodeId, 4>;
 using QuadEdges = std::array<EdgeId, 4>;
 
-struct SurfaceMesh {
+struct Surface {
+  std::vector<QuadId> quads;
+  Axis normal;
+  IntegerSign sign;
+  std::set<DualRegionId> regions;
 
+  bool allRegionsInSet(const std::set<DualRegionId> &dualRegionIds) const {
+    for (DualRegionId id : regions) {
+      if (!dualRegionIds.contains(id))
+        return false;
+    }
+    return true;
+  }
+};
+
+struct SurfaceMesh {
+private:
+  // get the square (or box) of adjacent regions. if some adjacent regions are
+  // missing, sets the resMissingChild flag; otherwise, leave it as is
+
+  std::set<DualRegionId> getBox(const DualRegionId id, bool &resMissingChild,
+                                std::set<Axis> excludedAxes = {}) const;
+
+public:
   const VoxelMesh &m;
 
   std::vector<Voxel> nodes;
@@ -32,12 +55,15 @@ struct SurfaceMesh {
 
   // Quad connectivity
   std::vector<QuadEdges> quadToEdges;
-  std::vector<RegionId> quadToRegion;
-  std::vector<std::array<Voxel, NB_NODE_PER_QUAD>> quadToVoxels;
+  std::vector<DualRegionId> quadToRegion;
   std::vector<Axis> quadToNormal;
-  std::vector<std::vector<QuadId>> regionToQuads;
+  std::vector<IntegerSign> quadToNormalSign;
+  std::vector<std::vector<QuadId>> regionToQuadIds;
 
   std::vector<Axis> quadToAxisConstraint;
+
+  // Primal regions
+  std::vector<Surface> surfaces;
 
   // Edge connectivity
   std::vector<std::vector<QuadId>> edgeToQuads;
@@ -56,7 +82,7 @@ struct SurfaceMesh {
 
   explicit SurfaceMesh(const VoxelMesh &mesh);
 
-  NodeId findCorner(RegionId regionId) const;
+  NodeId findCorner(DualRegionId regionId) const;
 
   std::vector<NodeId> findCorners() const;
 
@@ -69,7 +95,7 @@ struct SurfaceMesh {
   std::vector<SurfacePath> findPaths();
 
   void exportMesh(std::string filename) const;
-  std::vector<Axis> findAxisConstraints();
+  std::vector<PrimalRegion> buildPrimalRegions();
 };
 
 SurfaceMesh generateSurface(const VoxelMesh &m);

@@ -1,8 +1,8 @@
-#ifndef REGION_HPP
-#define REGION_HPP
+#ifndef DUAL_REGION_HPP
+#define DUAL_REGION_HPP
 
+#include "dual_region_interface.hpp"
 #include "ids.hpp"
-#include "region_interface.hpp"
 #include "signed_axis.hpp"
 
 #include <array>
@@ -10,19 +10,19 @@
 #include <sys/types.h>
 
 class VoxelMesh;
-class RegionInterface;
+class DualRegionInterface;
 
 using SliceMatrix = Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic>;
 
-struct Region {
+struct DualRegion {
   void updateBounds();
-  std::array<std::vector<RegionInterface>, DIMENSION> children;
+  std::array<std::vector<DualRegionInterface>, DIMENSION> children;
   // std::array<std::vector<RegionInterface>, DIMENSION> parents;
 
-  using TraversalFn = std::function<bool(Region &, RegionInterface &)>;
-  using ProcessingFn = std::function<bool(Region &)>;
+  using TraversalFn = std::function<bool(DualRegion &, DualRegionInterface &)>;
+  using ProcessingFn = std::function<bool(DualRegion &)>;
 
-  RegionId id;
+  DualRegionId id;
 
   using Voxel = Eigen::Vector3<int>;
 
@@ -37,20 +37,22 @@ struct Region {
   // those normals is never zero and represents the existing faces of the reigon
   std::array<IntegerSign, DIMENSION> facesNormals = {ZERO, ZERO, ZERO};
 
+  std::array<SurfaceId, DIMENSION> surfaceIds;
+
   std::pair<std::vector<Voxel>, std::vector<Voxel>>
   splitByFlagMatrix(const FlagMatrix &flagMatrix, const SliceId sliceId,
                     const Axis axis) const;
-  Region(RegionId id, VoxelMesh &mesh) : meshPtr(&mesh), id(id) {}
+  DualRegion(DualRegionId id, VoxelMesh &mesh) : meshPtr(&mesh), id(id) {}
 
   auto begin() const { return voxels.begin(); };
   auto end() const { return voxels.end(); };
 
   bool containsSlice(Axis axis, SliceId sliceId) const;
 
-  std::vector<RegionInterface *>
+  std::vector<DualRegionInterface *>
   interfaces(const std::array<bool, DIMENSION> &axisMask = {true, true, true});
 
-  std::vector<RegionInterface *> interfaces(Axis axis) {
+  std::vector<DualRegionInterface *> interfaces(Axis axis) {
     std::array<bool, DIMENSION> axisMask = {};
     axisMask[axis] = true;
     return interfaces(axisMask);
@@ -62,13 +64,13 @@ struct Region {
                         SliceId sliceId) const;
 };
 
-inline std::ostream &operator<<(std::ostream &os, const Region &r) {
+inline std::ostream &operator<<(std::ostream &os, const DualRegion &r) {
   os << "REGION [" << r.id << "] : " << std::endl;
   os << "FROM :" << r.startSlices.transpose() << std::endl;
   os << "TO :" << r.endSlices.transpose() << std::endl;
   for (Axis d = 0; d < DIMENSION; d++) {
     os << "CHILDREN [" << d << "] ";
-    for (RegionInterface i : r.children[d])
+    for (DualRegionInterface i : r.children[d])
       os << i.regionId << " ";
     os << std::endl;
   }

@@ -1,8 +1,8 @@
 
 #include "voxel_mesh.hpp"
 #include "constants.hpp"
+#include "dual_region.hpp"
 #include "ids.hpp"
-#include "region.hpp"
 #include "signed_axis.hpp"
 #include "utils.hpp"
 #include <fstream>
@@ -76,33 +76,33 @@ void VoxelMesh::tetrahedraVoxels(const Vertex &A, const Vertex &B,
 }
 
 void VoxelMesh::updateBoundaryNormals() {
-  std::vector<std::array<RegionId, DIMENSION>> parents(
-      regions.size(), {NO_REGION, NO_REGION, NO_REGION});
-  for (Region &region : regions) {
+  std::vector<std::array<DualRegionId, DIMENSION>> parents(
+      regions.size(), {NO_DUAL_REGION, NO_DUAL_REGION, NO_DUAL_REGION});
+  for (DualRegion &region : regions) {
     for (Axis a = 0; a < DIMENSION; a++)
-      for (RegionInterface &i : region.children[a])
+      for (DualRegionInterface &i : region.children[a])
         parents[i.regionId][a] = region.id;
   }
-  for (Region &region : regions) {
+  for (DualRegion &region : regions) {
     for (Axis a = 0; a < DIMENSION; a++) {
       // update boundary normal
       if (region.children[a].size() == 0)
         region.boundaryNormals[a] = NEGATIVE;
-      else if (parents[region.id][a] == NO_REGION)
+      else if (parents[region.id][a] == NO_DUAL_REGION)
         region.boundaryNormals[a] = POSITIVE;
       else
         region.boundaryNormals[a] = ZERO;
     }
   }
-  for (Region &region : regions) {
+  for (DualRegion &region : regions) {
     region.facesNormals = region.boundaryNormals;
     for (Axis a = 0; a < DIMENSION; a++) {
       if (region.facesNormals[a] == ZERO) {
         Axis curAxis = a;
         do {
           curAxis = (curAxis + 1) % DIMENSION;
-          RegionId layerParentId = region.id;
-          while (parents[layerParentId][a] != NO_REGION)
+          DualRegionId layerParentId = region.id;
+          while (parents[layerParentId][a] != NO_DUAL_REGION)
             layerParentId = parents[layerParentId][a];
           region.facesNormals[a] = regions[layerParentId].boundaryNormals[a];
         } while (region.facesNormals[a] == ZERO && curAxis != a);
@@ -137,8 +137,8 @@ Eigen::Vector2i VoxelMesh::getCoordsInSlice(Axis axis,
   return coords;
 }
 
-std::tuple<CutFlagTensor, std::set<RegionId>, std::set<RegionId>,
-           std::set<RegionId>>
+std::tuple<CutFlagTensor, std::set<DualRegionId>, std::set<DualRegionId>,
+           std::set<DualRegionId>>
 VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   assert(axis >= 0 && axis < DIMENSION);
 
@@ -148,9 +148,9 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   CutFlagTensor flags(dimensions[0], dimensions[1], dimensions[2]);
   flags.setConstant(CutFlag::Undefined);
 
-  std::set<RegionId> encounteredRegions;
-  std::set<RegionId> topRegionNeighbors;
-  std::set<RegionId> bottomRegionNeighbors;
+  std::set<DualRegionId> encounteredRegions;
+  std::set<DualRegionId> topRegionNeighbors;
+  std::set<DualRegionId> bottomRegionNeighbors;
 
   // --------------------------------------------------
   // 1. Find the connected cut using a 2D flood fill.
@@ -205,7 +205,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
   // --------------------------------------------------
 
   auto floodFill = [&](Voxel seed, CutFlag sideFlag,
-                       std::set<RegionId> &sideNeighbors) {
+                       std::set<DualRegionId> &sideNeighbors) {
     if ((seed.array() < 0).any() || (seed.array() >= dimensions.array()).any())
       return;
 
@@ -227,7 +227,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
     visited(seed.x(), seed.y(), seed.z()) = true;
     flags(seed.x(), seed.y(), seed.z()) = sideFlag;
 
-    const RegionId seedRegion = voxelToRegion(seed.x(), seed.y(), seed.z());
+    const DualRegionId seedRegion = voxelToRegion(seed.x(), seed.y(), seed.z());
 
     encounteredRegions.insert(seedRegion);
 
@@ -235,7 +235,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
       const Voxel voxel = sideQueue.front();
       sideQueue.pop();
 
-      const RegionId currentRegionId =
+      const DualRegionId currentRegionId =
           voxelToRegion(voxel.x(), voxel.y(), voxel.z());
 
       for (Axis neighborAxis = 0; neighborAxis < DIMENSION; ++neighborAxis) {
@@ -263,7 +263,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
           if (flags(x, y, z) != CutFlag::Undefined)
             continue;
 
-          const RegionId neighborRegionId = voxelToRegion(x, y, z);
+          const DualRegionId neighborRegionId = voxelToRegion(x, y, z);
 
           if (neighborRegionId != currentRegionId) {
 
@@ -300,7 +300,7 @@ VoxelMesh::computeCutRegions(Axis axis, Voxel origin) const {
           visited(x, y, z) = true;
           flags(x, y, z) = sideFlag;
 
-          if (neighborRegionId != NO_REGION)
+          if (neighborRegionId != NO_DUAL_REGION)
             encounteredRegions.insert(neighborRegionId);
 
           sideQueue.push(neighbor);
@@ -333,10 +333,11 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
   auto [flags, encounteredRegions, topRegionNeighbors, bottomRegionNeighbors] =
       computeCutRegions(axis, origin);
 
-  std::vector<RegionId> cutRegionToNewRegion(regions.size(), NO_REGION);
-  for (RegionId cutRegionId : encounteredRegions) {
-    Region &newRegion = regions.emplace_back(regions.size(), *this);
-    Region &cutRegion = regions[cutRegionId];
+  std::vector<DualRegionId> cutRegionToNewRegion(regions.size(),
+                                                 NO_DUAL_REGION);
+  for (DualRegionId cutRegionId : encounteredRegions) {
+    DualRegion &newRegion = regions.emplace_back(regions.size(), *this);
+    DualRegion &cutRegion = regions[cutRegionId];
     cutRegionToNewRegion[cutRegionId] = newRegion.id;
     std::vector<Voxel> cutRegionVoxels;
     std::vector<Voxel> newRegionVoxels;
@@ -355,22 +356,23 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
     newRegion.updateBounds();
   }
 
-  for (RegionId cutRegionId : encounteredRegions) {
-    Region &newRegion = regions[cutRegionToNewRegion[cutRegionId]];
-    Region &cutRegion = regions[cutRegionId];
+  for (DualRegionId cutRegionId : encounteredRegions) {
+    DualRegion &newRegion = regions[cutRegionToNewRegion[cutRegionId]];
+    DualRegion &cutRegion = regions[cutRegionId];
 
-    newRegion.children[axis] = {RegionInterface(axis, NEGATIVE, cutRegion.id)};
+    newRegion.children[axis] = {
+        DualRegionInterface(axis, NEGATIVE, cutRegion.id)};
     for (Axis a = 0; a < DIMENSION; a++) {
-      std::vector<RegionInterface> newCutRegionChildren;
-      for (RegionInterface &i : cutRegion.children[a]) {
+      std::vector<DualRegionInterface> newCutRegionChildren;
+      for (DualRegionInterface &i : cutRegion.children[a]) {
         bool partOfCutRegions = encounteredRegions.contains(i.regionId);
         bool partOfTopRegions = partOfCutRegions;
         partOfTopRegions |= topRegionNeighbors.contains(i.regionId);
         bool partOfBottomRegions = partOfCutRegions;
         partOfBottomRegions |= bottomRegionNeighbors.contains(i.regionId);
         if (partOfTopRegions) {
-          RegionInterface &created = newRegion.children[a].emplace_back(i);
-          if (cutRegionToNewRegion[created.regionId] != NO_REGION)
+          DualRegionInterface &created = newRegion.children[a].emplace_back(i);
+          if (cutRegionToNewRegion[created.regionId] != NO_DUAL_REGION)
             created.regionId = cutRegionToNewRegion[i.regionId];
         }
         if (partOfBottomRegions)
@@ -380,9 +382,9 @@ bool VoxelMesh::cut(Axis axis, Voxel origin) {
     }
   }
 
-  for (RegionId neighborId : topRegionNeighbors) {
-    for (RegionInterface *i : regions[neighborId].interfaces()) {
-      if (cutRegionToNewRegion[i->regionId] != NO_REGION)
+  for (DualRegionId neighborId : topRegionNeighbors) {
+    for (DualRegionInterface *i : regions[neighborId].interfaces()) {
+      if (cutRegionToNewRegion[i->regionId] != NO_DUAL_REGION)
         i->regionId = cutRegionToNewRegion[i->regionId];
     }
   }
@@ -447,7 +449,7 @@ void VoxelMesh::buildMesh() {
     tetrahedraVoxels(v1, v2, v3, v4);
   }
 
-  Region initialRegion(0, *this);
+  DualRegion initialRegion(0, *this);
   initialRegion.boundaryNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
   initialRegion.facesNormals = {UNDEFINED, UNDEFINED, UNDEFINED};
 
@@ -470,7 +472,7 @@ void VoxelMesh::buildMesh() {
   regions.push_back(initialRegion);
 }
 
-Voxel VoxelMesh::findCorner(Region &r) {
+Voxel VoxelMesh::findCorner(DualRegion &r) {
 
   Voxel target = Voxel::Zero();
 
@@ -604,7 +606,7 @@ std::vector<Voxel> VoxelMesh::findCorners() {
 
   std::vector<Voxel> res;
 
-  for (Region &r : regions)
+  for (DualRegion &r : regions)
     res.push_back(findCorner(r));
 
   return res;
@@ -617,13 +619,13 @@ std::vector<VoxelPath> VoxelMesh::findPaths() {
 
   const size_t nbRegion = regions.size();
 
-  for (RegionId rId = 0; rId < nbRegion; ++rId) {
-    Region &r = regions[rId];
+  for (DualRegionId rId = 0; rId < nbRegion; ++rId) {
+    DualRegion &r = regions[rId];
 
     for (Axis a = 0; a < DIMENSION; ++a) {
-      for (const RegionInterface &interface : r.children[a]) {
+      for (const DualRegionInterface &interface : r.children[a]) {
 
-        RegionId adjId = interface.regionId;
+        DualRegionId adjId = interface.regionId;
 
         VoxelPath path;
         path.normal = interface.normal;
@@ -640,7 +642,7 @@ std::vector<VoxelPath> VoxelMesh::findPaths() {
 }
 
 bool VoxelMesh::isCutAllowed(Axis a, const Voxel &v) {
-  Region &r = regions[voxelToRegion(v.x(), v.y(), v.z())];
+  DualRegion &r = regions[voxelToRegion(v.x(), v.y(), v.z())];
   for (Axis d = 0; d < DIMENSION; d++) {
     if (d == a)
       continue;
@@ -666,19 +668,19 @@ void VoxelMesh::saveDotfile(Axis a, std::string filename) {
   file << "  node [shape=box, style=rounded];\n\n";
 
   // Write nodes.
-  for (const Region &region : regions) {
+  for (const DualRegion &region : regions) {
     file << "  " << region.id << " [label=\"Region " << region.id << "\"];\n";
   }
 
   file << "\n";
 
   // Write edges using child relationships.
-  for (const Region &region : regions) {
-    for (const RegionInterface &child : region.children[a]) {
+  for (const DualRegion &region : regions) {
+    for (const DualRegionInterface &child : region.children[a]) {
       file << "  " << region.id << " -> " << child.regionId << ";\n";
 
       // bool foundParent = false;
-      // for (const RegionInterface &parent :
+      // for (const DualRegionInterface &parent :
       // regions[child.regionId].parents[a]) {
       //   if (parent.regionId == region.id) {
       //     foundParent = true;

@@ -1,13 +1,13 @@
 #ifndef REGION_INTERFACE_HPP
 #define REGION_INTERFACE_HPP
 
-class Region;
+class DualRegion;
 
 enum InterfacePosition { IP_TOP, IP_BOT, IP_LEFT, IP_RIGHT };
 
 #include "signed_axis.hpp"
 
-struct RegionInterface {
+struct DualRegionInterface {
 
   IntegerSign sign;
   Axis normal;
@@ -21,11 +21,11 @@ struct RegionInterface {
     inline bool contains(SliceId val) const { return val >= from && val <= to; }
   };
 
-  RegionInterface(Axis normal, IntegerSign sign, RegionId regionId)
+  DualRegionInterface(Axis normal, IntegerSign sign, DualRegionId regionId)
       : regionId(regionId), normal(normal), sign(sign),
         nextAxis((normal + 1) % DIMENSION),
         prevAxis((normal + 2) % DIMENSION) {};
-  RegionId regionId;
+  DualRegionId regionId;
 
   InterfacePosition getInterfacePosition(Axis cutDirection) const;
 };

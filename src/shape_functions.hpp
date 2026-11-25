@@ -5,8 +5,9 @@
 #include "ids.hpp"
 #include <Eigen/Core>
 
-Eigen::Matrix3d computeHexaJacobian(const std::array<Vertex, 8> &nodes,
-                                    const Vertex &refPoint) {
+inline Eigen::Matrix3d computeHexaJacobian(const std::array<Vertex, 8> &nodes,
+                                           const Vertex &refPoint = {0.5, 0.5,
+                                                                     0.5}) {
   const double xi = refPoint.x();
   const double eta = refPoint.y();
   const double zeta = refPoint.z();
@@ -49,10 +50,7 @@ inline DiffTetShapeFunctions
 computeDiffShapeFunctions(std::array<Vertex, NB_NODE_PER_HEX> hex) {
   DiffTetShapeFunctions res;
 
-  // Tetrahedron reference coordinates
-  const Vertex refPoint(0.25, 0.25, 0.25);
-
-  const Eigen::Matrix3d J = computeHexaJacobian(hex, refPoint);
+  const Eigen::Matrix3d J = computeHexaJacobian(hex);
 
   const Eigen::Matrix3d invJ = J.inverse();
 

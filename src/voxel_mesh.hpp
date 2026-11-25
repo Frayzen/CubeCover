@@ -1,11 +1,11 @@
 #ifndef VOXEL_MESH_HPP
 #define VOXEL_MESH_HPP
 
+#include "dual_region.hpp"
+#include "dual_region_interface.hpp"
 #include "graph.hpp"
 #include "ids.hpp"
 #include "mesh_loader.hpp"
-#include "region.hpp"
-#include "region_interface.hpp"
 #include "signed_axis.hpp"
 #include <Eigen/Dense>
 #include <Eigen/Eigen>
@@ -37,10 +37,10 @@ struct VoxelPath {
 
 struct VoxelMesh {
 private:
-  Voxel findCorner(Region &r);
+  Voxel findCorner(DualRegion &r);
   std::vector<Voxel> findShortestPath(Voxel start, Voxel end, Axis a);
-  std::vector<SliceId> computeLayerCandidates(Axis axis,
-                                              std::vector<RegionId> regions);
+  std::vector<SliceId>
+  computeLayerCandidates(Axis axis, std::vector<DualRegionId> regions);
   Graph voxelGraph;
 
   Eigen::Vector2i getSliceSize(Axis axis) const;
@@ -52,14 +52,14 @@ public:
   size_t nbVoxel;
 
   Eigen::Tensor<VoxelId, DIMENSION> voxels;
-  Eigen::Tensor<RegionId, DIMENSION> voxelToRegion;
+  Eigen::Tensor<DualRegionId, DIMENSION> voxelToRegion;
   Eigen::Tensor<bool, DIMENSION> voxelBoundaryFlag;
   Eigen::Tensor<bool, DIMENSION> voxelEdgeFlag;
   Eigen::Tensor<Axis, DIMENSION> voxelPathFlag;
   Eigen::Tensor<std::array<IntegerSign, DIMENSION>, DIMENSION> voxelNormals;
   std::vector<Voxel> idToVoxel;
 
-  std::vector<Region> regions;
+  std::vector<DualRegion> regions;
 
   void buildMesh();
   double voxelSize;
@@ -69,8 +69,8 @@ public:
   }
 
   bool isCutAllowed(Axis a, const Voxel &v);
-  bool findWay(Axis axis, SliceId sliceId, const RegionInterface &first,
-               const RegionInterface &second);
+  bool findWay(Axis axis, SliceId sliceId, const DualRegionInterface &first,
+               const DualRegionInterface &second);
 
   // return true if the cut happened correctly
   // it could return false if a cut already happened on this slide for this axis
@@ -92,8 +92,8 @@ public:
   VoxelId getId(const Voxel &v) const;
   Voxel getVoxel(VoxelId id) const;
 
-  std::tuple<CutFlagTensor, std::set<RegionId>, std::set<RegionId>,
-             std::set<RegionId>>
+  std::tuple<CutFlagTensor, std::set<DualRegionId>, std::set<DualRegionId>,
+             std::set<DualRegionId>>
   computeCutRegions(Axis axis, Voxel origin) const;
 
   std::vector<Voxel> getNeighbours(const Voxel &v,

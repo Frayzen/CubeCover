@@ -12,15 +12,15 @@
 #include <vector>
 
 SurfaceMesh::SurfaceMesh(const VoxelMesh &mesh)
-    : m(mesh), regionToQuads(m.regions.size()) {}
+    : m(mesh), regionToQuadIds(m.regions.size()) {}
 
 // ============================================================
 // Find region corner
 // ============================================================
 
-NodeId SurfaceMesh::findCorner(RegionId regionId) const {
+NodeId SurfaceMesh::findCorner(DualRegionId regionId) const {
 
-  const Region &r = m.regions[regionId];
+  const DualRegion &r = m.regions[regionId];
 
   Vertex target = Vertex::Zero();
 
@@ -49,7 +49,7 @@ NodeId SurfaceMesh::findCorner(RegionId regionId) const {
   double minDist = std::numeric_limits<double>::max();
   NodeId minVertex = NO_NODE;
 
-  for (QuadId quadId : regionToQuads[regionId]) {
+  for (QuadId quadId : regionToQuadIds[regionId]) {
     for (EdgeId edgeId : quadToEdges[quadId]) {
       for (NodeId vertexId : edges[edgeId]) {
         const Vertex &v = nodes[vertexId].cast<double>() * m.voxelSize;
@@ -78,7 +78,7 @@ std::vector<NodeId> SurfaceMesh::findCorners() const {
 
   res.reserve(m.regions.size());
 
-  for (RegionId rId = 0; rId < m.regions.size(); ++rId)
+  for (DualRegionId rId = 0; rId < m.regions.size(); ++rId)
     res.push_back(findCorner(rId));
 
   return res;
@@ -206,16 +206,16 @@ std::vector<SurfacePath> SurfaceMesh::findPaths() {
 
   paths.clear();
 
-  for (RegionId rId = 0; rId < m.regions.size(); ++rId) {
+  for (DualRegionId rId = 0; rId < m.regions.size(); ++rId) {
 
-    const Region &r = m.regions[rId];
+    const DualRegion &r = m.regions[rId];
 
     for (Axis a = 0; a < DIMENSION; ++a) {
 
-      for (const RegionInterface &interface : r.children[a]) {
+      for (const DualRegionInterface &interface : r.children[a]) {
 
-        const RegionId adjId = interface.regionId;
-        const Region &adj = m.regions[adjId];
+        const DualRegionId adjId = interface.regionId;
+        const DualRegion &adj = m.regions[adjId];
 
         SurfacePath path;
         path.regions[0] = rId;
@@ -249,7 +249,48 @@ std::vector<SurfacePath> SurfaceMesh::findPaths() {
   return paths;
 }
 
-std::vector<Axis> SurfaceMesh::findAxisConstraints() {
+// get the square (or box) of adjacent regions. if some adjacent regions are
+// missing, sets the resMissingChild flag; otherwise, set it to false
+std::set<DualRegionId> SurfaceMesh::getBox(const DualRegionId id,
+                                           bool &resMissingChild,
+                                           std::set<Axis> excludedAxes) const {
+  resMissingChild = false;
+  std::set<DualRegionId> dualRegionIds;
+  std::function<void(const DualRegion &current, std::set<Axis> excludedAxes)>
+      addBox = [&](const DualRegion &current, std::set<Axis> excludedAxes) {
+        if (resMissingChild)
+          return;
+
+        dualRegionIds.insert(current.id);
+
+        for (Axis axis = 0; axis < DIMENSION; axis++) {
+          if (excludedAxes.contains(axis))
+            continue;
+
+          if (current.children[axis].empty()) {
+            resMissingChild = true;
+            return;
+          }
+
+          assert(current.children[axis].size() == 1);
+
+          const DualRegion &child =
+              m.regions[current.children[axis][0].regionId];
+
+          auto childExcludedAxes = excludedAxes;
+          childExcludedAxes.insert(axis);
+
+          addBox(child, std::move(childExcludedAxes));
+
+          if (resMissingChild)
+            return;
+        }
+      };
+  addBox(m.regions[id], excludedAxes);
+  return dualRegionIds;
+}
+
+std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
   quadToAxisConstraint.clear();
   findPaths();
 
@@ -263,8 +304,10 @@ std::vector<Axis> SurfaceMesh::findAxisConstraints() {
     throw std::runtime_error("SurfaceMesh: edgeToPaths size mismatch.");
 
   std::vector<bool> visited(quads.size(), false);
-
+  std::vector<Eigen::Vector2i> uv(quads.size());
   std::vector<Axis> colors(quads.size(), NO_AXIS);
+
+  // add boundary surfaces
 
   for (QuadId seed = 0; seed < quads.size(); ++seed) {
 
@@ -272,14 +315,15 @@ std::vector<Axis> SurfaceMesh::findAxisConstraints() {
       continue;
 
     // Axes of paths bordering this component.
-    std::array<size_t, DIMENSION> encountered{};
+    std::array<size_t, DIMENSION> encounteredAxis{};
+    std::set<DualRegionId> encounteredRegions;
 
-    std::vector<QuadId> component;
+    std::vector<QuadId> surfaceQuads;
     std::queue<QuadId> queue;
 
     visited[seed] = true;
     queue.push(seed);
-    RegionId seedRegionId = quadToRegion[seed];
+    DualRegionId seedRegionId = quadToRegion[seed];
 
     // ----------------------------------------------------
     // Flood fill
@@ -290,7 +334,9 @@ std::vector<Axis> SurfaceMesh::findAxisConstraints() {
       const QuadId qId = queue.front();
       queue.pop();
 
-      component.push_back(qId);
+      encounteredRegions.insert(quadToRegion[qId]);
+
+      surfaceQuads.push_back(qId);
 
       // Inspect the four edges of the current quad.
       for (EdgeId eId : quadToEdges[qId]) {
@@ -318,7 +364,7 @@ std::vector<Axis> SurfaceMesh::findAxisConstraints() {
             if (axis >= DIMENSION)
               throw std::runtime_error("SurfaceMesh: invalid path normal.");
 
-            encountered[axis]++;
+            encounteredAxis[axis]++;
           }
 
           continue;
@@ -333,15 +379,17 @@ std::vector<Axis> SurfaceMesh::findAxisConstraints() {
           if (neighbor >= quads.size())
             throw std::runtime_error(
                 "SurfaceMesh: invalid adjacent quad index.");
-
           if (visited[neighbor])
             continue;
 
           visited[neighbor] = true;
+
           queue.push(neighbor);
         }
       }
     }
+
+    assert(encounteredRegions.size() == 4);
 
     // ----------------------------------------------------
     // Find the missing axis
@@ -352,10 +400,9 @@ std::vector<Axis> SurfaceMesh::findAxisConstraints() {
     size_t minimumCounts = std::numeric_limits<size_t>::max();
 
     for (Axis a = 0; a < DIMENSION; ++a) {
-
-      if (encountered[a] >= minimumCounts)
+      if (encounteredAxis[a] >= minimumCounts)
         continue;
-      minimumCounts = encountered[a];
+      minimumCounts = encounteredAxis[a];
       missingAxis = a;
     }
 
@@ -363,9 +410,80 @@ std::vector<Axis> SurfaceMesh::findAxisConstraints() {
     // Assign the missing axis to every quad in the component
     // ----------------------------------------------------
 
-    for (QuadId qId : component)
+    int normalSignSum = 0;
+    for (QuadId qId : surfaceQuads) {
       colors[qId] = missingAxis;
+      if (quadToNormal[qId] == missingAxis)
+        normalSignSum += quadToNormalSign[qId] == POSITIVE ? 1 : -1;
+    }
+    SurfaceId surfaceId = surfaces.size();
+    IntegerSign averageSign = normalSignSum < 0 ? NEGATIVE : POSITIVE;
+    surfaces.push_back({
+        .quads = surfaceQuads,
+        .normal = missingAxis,
+        .sign = averageSign,
+        .regions = encounteredRegions,
+    });
   }
+
+  // create primal regions
+
+  std::vector<PrimalRegion> primalRegions;
+  for (const DualRegion &region : m.regions) {
+    bool missingChild = false;
+    std::set<DualRegionId> dualRegionIds = getBox(region.id, missingChild);
+    if (missingChild)
+      continue;
+    assert(dualRegionIds.size() == 8);
+    PrimalRegion &primalRegion = primalRegions.emplace_back();
+    size_t i = 0;
+    for (DualRegionId id : dualRegionIds) {
+      primalRegion.dualRegions[i] = id;
+      primalRegion.corners[i] = nodes[regionCorners[id]];
+      i++;
+    }
+    for (SurfaceId surfaceId = 0; surfaceId < surfaces.size(); surfaceId++) {
+      Surface &surface = surfaces[surfaceId];
+      if (!surface.allRegionsInSet(dualRegionIds))
+        continue;
+      SurfaceId &primalSurfaceId =
+          primalRegion.getSurfaceId(surface.normal, surface.sign);
+      assert(primalSurfaceId == NO_SURFACE);
+      primalSurfaceId = surfaceId;
+    }
+    primalRegion.reorderDualRegionsToVTK(m);
+  }
+
+  // add missing internal surfaces
+  for (PrimalRegion &primalRegion : primalRegions) {
+    for (Axis a = 0; a < DIMENSION; a++) {
+      for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
+        SurfaceId &sId = primalRegion.getSurfaceId(a, sign);
+        if (sId != NO_SURFACE)
+          continue;
+        std::array<DualRegionId, NB_NODE_PER_QUAD> faceDualRegions =
+            primalRegion.getRegionFromFace(a, sign);
+        size_t first = nodes[regionCorners[*faceDualRegions.begin()]][a];
+        for (DualRegionId rId : faceDualRegions)
+          assert(nodes[regionCorners[rId]][a] == first);
+      }
+    }
+  }
+
+  auto dim = m.voxels.dimensions();
+  Eigen::Tensor<PrimalRegionId, DIMENSION> voxelToPrimalRegion(dim[0], dim[1],
+                                                               dim[2]);
+  for (PrimalRegionId prId = 0; prId < primalRegions.size(); prId++) {
+    for (SurfaceId sId : primalRegions[prId].surfaceIds) {
+      assert(sId != NO_SURFACE);
+      for (QuadId qId : surfaces[sId].quads) {
+        Voxel v = nodes[quads[qId][0]];
+        voxelToPrimalRegion(v.x(), v.y(), v.z()) = prId;
+      }
+    }
+  }
+
   quadToAxisConstraint = colors;
-  return quadToAxisConstraint;
+  std::cout << "GOT " << primalRegions.size() << std::endl;
+  return primalRegions;
 }

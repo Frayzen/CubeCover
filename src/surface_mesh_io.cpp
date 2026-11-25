@@ -75,7 +75,8 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
   // --------------------------------------------------------
 
   auto addQuad = [&](const std::array<GridVertex, 4> &corners,
-                     RegionId regionId, Axis normal) {
+                     DualRegionId regionId, Axis normal,
+                     IntegerSign normalSign) {
     Quad quad;
 
     QuadEdges quadEdges;
@@ -96,7 +97,8 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
     surface.quadToEdges.push_back(quadEdges);
     surface.quadToRegion.push_back(regionId);
     surface.quadToNormal.push_back(normal);
-    surface.regionToQuads[regionId].push_back(qId);
+    surface.quadToNormalSign.push_back(normalSign);
+    surface.regionToQuadIds[regionId].push_back(qId);
 
     for (EdgeId eId : quadEdges)
       surface.edgeToQuads[eId].push_back(qId);
@@ -126,7 +128,7 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
         if (!isOccupied(x, y, z))
           continue;
 
-        const RegionId rId = m.voxelToRegion(x, y, z);
+        const DualRegionId rId = m.voxelToRegion(x, y, z);
 
         const SliceId xp = x + 1;
         const SliceId yp = y + 1;
@@ -136,7 +138,7 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
         if (x == 0 || !isOccupied(x - 1, y, z)) {
 
           addQuad({{{{x, y, z}}, {{x, y, zp}}, {{x, yp, zp}}, {{x, yp, z}}}},
-                  rId, 0);
+                  rId, 0, NEGATIVE);
         }
 
         // RIGHT (+X)
@@ -144,14 +146,14 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{xp, y, z}}, {{xp, yp, z}}, {{xp, yp, zp}}, {{xp, y, zp}}}},
-              rId, 0);
+              rId, 0, POSITIVE);
         }
 
         // FRONT (-Y)
         if (y == 0 || !isOccupied(x, y - 1, z)) {
 
           addQuad({{{{x, y, z}}, {{xp, y, z}}, {{xp, y, zp}}, {{x, y, zp}}}},
-                  rId, 1);
+                  rId, 1, NEGATIVE);
         }
 
         // BACK (+Y)
@@ -159,14 +161,14 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{x, yp, z}}, {{x, yp, zp}}, {{xp, yp, zp}}, {{xp, yp, z}}}},
-              rId, 1);
+              rId, 1, POSITIVE);
         }
 
         // BOTTOM (-Z)
         if (z == 0 || !isOccupied(x, y, z - 1)) {
 
           addQuad({{{{x, y, z}}, {{x, yp, z}}, {{xp, yp, z}}, {{xp, y, z}}}},
-                  rId, 2);
+                  rId, 2, NEGATIVE);
         }
 
         // TOP (+Z)
@@ -174,7 +176,7 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
           addQuad(
               {{{{x, y, zp}}, {{xp, y, zp}}, {{xp, yp, zp}}, {{x, yp, zp}}}},
-              rId, 2);
+              rId, 2, POSITIVE);
         }
       }
     }
@@ -260,7 +262,7 @@ void SurfaceMesh::exportMesh(std::string filename) const {
   // Region corners
   // ========================================================
 
-  for (RegionId rId = 0; rId < regionCorners.size(); ++rId) {
+  for (DualRegionId rId = 0; rId < regionCorners.size(); ++rId) {
 
     const NodeId vertexId = regionCorners[rId];
 

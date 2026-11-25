@@ -79,10 +79,10 @@ int main(int argc, char *argv[]) {
 #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   SurfaceMesh surfaceMesh = generateSurface(mesh);
-  surfaceMesh.findAxisConstraints();
+  surfaceMesh.buildPrimalRegions();
   surfaceMesh.exportMesh("surface.vtu");
-  for (Region &r : mesh.regions) {
-    if (r.id != 18)
+  for (DualRegion &r : mesh.regions) {
+    if (r.id != 0)
       continue;
     Cubifier cubifier(surfaceMesh, r.id);
     cubifier.exportMesh("cubifier" + std::to_string(r.id) + ".vtu");
@@ -104,7 +104,7 @@ int main(int argc, char *argv[]) {
   std::vector<bool> boundaryFlag(mesh.nbVoxel);
 
   std::vector<size_t> colors(mesh.nbVoxel);
-  std::fill(colors.begin(), colors.end(), NO_REGION);
+  std::fill(colors.begin(), colors.end(), NO_DUAL_REGION);
 
   std::vector<double> boundaryXNormal(mesh.nbVoxel);
   std::vector<double> boundaryYNormal(mesh.nbVoxel);
@@ -121,8 +121,8 @@ int main(int argc, char *argv[]) {
         VoxelId id = mesh.getId(v);
         if (id == NO_VOXEL)
           continue;
-        RegionId regionId = mesh.voxelToRegion(i, j, k);
-        Region &region = mesh.regions[regionId];
+        DualRegionId regionId = mesh.voxelToRegion(i, j, k);
+        DualRegion &region = mesh.regions[regionId];
         colors[id] = regionId;
 
         boundaryXNormal[id] = getIntegerSignValue(region.boundaryNormals[0]);

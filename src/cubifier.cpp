@@ -1,14 +1,13 @@
 #include "cubifier.hpp"
 #include "constants.hpp"
 #include "ids.hpp"
+#include "shape_functions.hpp"
 #include "signed_axis.hpp"
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 
 #include <stdexcept>
 #include <string>
-
-#include <unordered_set>
 #include <vtkCellType.h>
 #include <vtkDoubleArray.h>
 #include <vtkHexahedron.h>
@@ -24,69 +23,73 @@
 
 #include <array>
 #include <cassert>
-#include <unordered_set>
 #include <vector>
 
-void Cubifier::applyConstraints(const Eigen::Tensor<NodeId, DIMENSION> &nodeIds,
-                                const Voxel &start,
-                                std::vector<bool> &constrainedFlag, bool last) {
+ElementMatrix Cubifier::computeHexaStiffness(const std::array<Vertex, 8> &X) {
 
-  std::array<Axis, DIMENSION> internalFaceSign = {UNDEFINED, UNDEFINED,
-                                                  UNDEFINED};
+  constexpr double a = 0.5773502691896257645;
 
-  // Apply constraints from the surface mesh.
-  for (QuadId qId : surfaceMesh.regionToQuads[region.id]) {
-    const Axis axis = surfaceMesh.quadToNormal[qId];
-    const double value = getIntegerSignValue(region.facesNormals[axis]);
+  constexpr std::array<std::array<double, 3>, 8> signs = {{{{-1, -1, -1}},
+                                                           {{1, -1, -1}},
+                                                           {{1, 1, -1}},
+                                                           {{-1, 1, -1}},
+                                                           {{-1, -1, 1}},
+                                                           {{1, -1, 1}},
+                                                           {{1, 1, 1}},
+                                                           {{-1, 1, 1}}}};
 
-    const Quad &q = surfaceMesh.quads[qId];
+  ElementMatrix Ke = ElementMatrix::Zero();
 
-    for (NodeId surfaceNodeId : q) {
-      const Voxel v = surfaceMesh.nodes[surfaceNodeId];
-      const Voxel relPos = v - start;
+  for (double xi : {-a, a}) {
+    for (double eta : {-a, a}) {
+      for (double zeta : {-a, a}) {
 
-      const NodeId systemNodeId = nodeIds(relPos.x(), relPos.y(), relPos.z());
+        // Shape function gradients in reference coordinates.
+        Eigen::Matrix<double, 8, 3> dN;
 
-      assert(systemNodeId != NO_NODE);
-      assert(systemNodeId < vertices.size());
+        for (int i = 0; i < 8; ++i) {
+          const auto &s = signs[i];
 
-      constrainedFlag[systemNodeId] = !last;
-      vertices[systemNodeId][axis] = value;
-    }
+          const double sx = s[0];
+          const double sy = s[1];
+          const double sz = s[2];
 
-    internalFaceSign[axis] =
-        region.facesNormals[axis] == POSITIVE ? NEGATIVE : POSITIVE;
-  }
+          dN(i, 0) = sx * (1.0 + sy * eta) * (1.0 + sz * zeta) / 8.0;
 
-  for (Axis axis = 0; axis < DIMENSION; ++axis) {
-    for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
-      if (internalFaceSign[axis] != UNDEFINED && internalFaceSign[axis] != sign)
-        continue;
-      const double value = getIntegerSignValue(sign);
+          dN(i, 1) = sy * (1.0 + sx * xi) * (1.0 + sz * zeta) / 8.0;
 
-      Voxel min = Voxel::Zero();
-      Voxel max = Voxel(nodeIds.dimension(0), nodeIds.dimension(1),
-                        nodeIds.dimension(2));
-
-      if (sign == POSITIVE) {
-        min[axis] = nodeIds.dimension(axis) - 1;
-      } else {
-        max[axis] = 1;
-      }
-
-      for (int x = min.x(); x < max.x(); ++x) {
-        for (int y = min.y(); y < max.y(); ++y) {
-          for (int z = min.z(); z < max.z(); ++z) {
-            const NodeId id = nodeIds(x, y, z);
-            if (id == NO_NODE)
-              continue;
-            vertices[id][axis] = value;
-            constrainedFlag[id] = true;
-          }
+          dN(i, 2) = sz * (1.0 + sx * xi) * (1.0 + sy * eta) / 8.0;
         }
+
+        // Geometric Jacobian: dx/d(xi, eta, zeta).
+        Eigen::Matrix3d J = Eigen::Matrix3d::Zero();
+
+        for (int i = 0; i < 8; ++i) {
+          J.noalias() += X[i] * dN.row(i);
+        }
+
+        const double detJ = J.determinant();
+
+        if (!std::isfinite(detJ) || detJ <= 1e-12) {
+          throw std::runtime_error("Invalid HEX8 Jacobian");
+        }
+
+        // Physical gradients:
+        // gradN = dN * J^{-1}.
+        //
+        // Solve J^T * gradN^T = dN^T instead of
+        // explicitly computing J.inverse().
+
+        Eigen::Matrix<double, 8, 3> gradN =
+            J.transpose().fullPivLu().solve(dN.transpose()).transpose();
+
+        // Integrate grad(N_i) . grad(N_j).
+        Ke.noalias() += gradN * gradN.transpose() * detJ;
       }
     }
   }
+
+  return Ke;
 }
 
 void Cubifier::build() {
@@ -94,115 +97,343 @@ void Cubifier::build() {
   hexes.clear();
   constrainedFlag.clear();
 
-  const Voxel start = region.startSlices;
-  const Voxel diff = region.endSlices - start;
+  const auto start = region.startSlices;
+  const auto diff = region.endSlices - start;
 
-  // One node per unique voxel corner.
-  Eigen::Tensor<NodeId, DIMENSION> nodeIds(diff.x() + 1, diff.y() + 1,
-                                           diff.z() + 1);
-  std::cout << "GOT DIFF " << nodeIds.dimensions() << std::endl;
+  using NodeIdsTensor = Eigen::Tensor<NodeId, 3>;
+
+  NodeIdsTensor nodeIds(diff.x() + 1, diff.y() + 1, diff.z() + 1);
 
   nodeIds.setConstant(NO_NODE);
 
-  // --------------------------------------------------
-  // 1. Build vertices and hexahedra.
-  // --------------------------------------------------
+  // ------------------------------------------------------------
+  // 1. Create vertices and HEX8 elements
+  // ------------------------------------------------------------
 
-  const std::array<Voxel, 8> offsets = {
-      Voxel(0, 0, 0), Voxel(1, 0, 0), Voxel(1, 1, 0), Voxel(0, 1, 0),
-      Voxel(0, 0, 1), Voxel(1, 0, 1), Voxel(1, 1, 1), Voxel(0, 1, 1)};
+  const std::array<Eigen::Vector3i, 8> offsets = {{{0, 0, 0},
+                                                   {1, 0, 0},
+                                                   {1, 1, 0},
+                                                   {0, 1, 0},
+                                                   {0, 0, 1},
+                                                   {1, 0, 1},
+                                                   {1, 1, 1},
+                                                   {0, 1, 1}}};
 
-  for (Voxel v : region) {
+  for (const auto &voxel : region.voxels) {
 
-    const Voxel relPos = v - start;
+    Hex hex;
 
-    Hex h;
-    size_t localNodeId = 0;
-    for (const Voxel &offset : offsets) {
-      const Voxel vertexPos = relPos + offset;
+    for (int i = 0; i < 8; ++i) {
 
-      NodeId &id = nodeIds(vertexPos.x(), vertexPos.y(), vertexPos.z());
+      const auto pos = voxel + offsets[i];
+
+      NodeId &id = nodeIds(pos.x() - start.x(), pos.y() - start.y(),
+                           pos.z() - start.z());
 
       if (id == NO_NODE) {
+
         id = static_cast<NodeId>(vertices.size());
-        Vertex vertex = vertexPos.cast<double>();
-        for (Axis a = 0; a < DIMENSION; a++)
-          vertex[a] /= diff[a];
-        vertices.push_back(vertex * 2 - Vertex::Ones());
-        constrainedFlag.push_back(false);
+
+        // Keep original physical coordinates.
+        // Do not normalize them here.
+        vertices.push_back(Vertex(static_cast<double>(pos.x()),
+                                  static_cast<double>(pos.y()),
+                                  static_cast<double>(pos.z())));
       }
-      assert(id < vertices.size());
-      h[localNodeId++] = id;
+
+      hex[i] = id;
     }
 
-    assert(localNodeId == 8);
-
-    hexes.push_back(h);
+    hexes.push_back(hex);
   }
 
-  // --------------------------------------------------
-  // 2. Build node adjacency.
-  // --------------------------------------------------
+  const NodeId n = static_cast<NodeId>(vertices.size());
 
-  constexpr std::array<std::array<size_t, 2>, 12> edges = {{
-      {{0, 1}},
-      {{1, 2}},
-      {{2, 3}},
-      {{3, 0}},
-      {{4, 5}},
-      {{5, 6}},
-      {{6, 7}},
-      {{7, 4}},
-      {{0, 4}},
-      {{1, 5}},
-      {{2, 6}},
-      {{3, 7}},
-  }};
-  std::vector<std::unordered_set<NodeId>> neighbours(vertices.size());
+  if (n == 0) {
+    throw std::runtime_error("No vertices were generated");
+  }
 
-  for (const Hex &h : hexes) {
-    for (const auto &[a, b] : edges) {
-      neighbours[h[a]].insert(h[b]);
-      neighbours[h[b]].insert(h[a]);
+  // ------------------------------------------------------------
+  // 2. Collect boundary nodes
+  // ------------------------------------------------------------
+
+  std::array<std::array<std::vector<NodeId>, 2>, 3> boundaryNodes;
+
+  auto getBoundaryNodes = [&](Axis a,
+                              IntegerSign sign) -> std::vector<NodeId> & {
+    const int axis = static_cast<int>(a);
+    const int side = (sign == POSITIVE) ? 0 : 1;
+
+    return boundaryNodes[axis][side];
+  };
+
+  // ------------------------------------------------------------
+  // 2a. Boundary nodes identified by the surface mesh
+  // ------------------------------------------------------------
+
+  const auto &quadIds = surfaceMesh.regionToQuadIds[region.id];
+
+  std::array<IntegerSign, 3> missingAxis = {UNDEFINED, UNDEFINED, UNDEFINED};
+
+  for (const auto quadId : quadIds) {
+
+    const Axis a = surfaceMesh.quadToAxisConstraint[quadId];
+
+    const IntegerSign sign = region.facesNormals[a];
+
+    // The opposite face may need to be added from the
+    // region's bounding box.
+    missingAxis[a] = (sign == POSITIVE) ? NEGATIVE : POSITIVE;
+
+    for (const auto surfaceNodeId : surfaceMesh.quads[quadId]) {
+
+      auto nodePos = surfaceMesh.nodes[surfaceNodeId] - start;
+
+      const NodeId id = nodeIds(nodePos.x(), nodePos.y(), nodePos.z());
+
+      if (id == NO_NODE) {
+        throw std::runtime_error(
+            "Surface node does not belong to the voxel region");
+      }
+
+      getBoundaryNodes(a, sign).push_back(id);
     }
   }
-  // --------------------------------------------------
-  // 3. Laplacian smoothing.
-  // --------------------------------------------------
 
-  constexpr size_t iterations = 100;
+  // ------------------------------------------------------------
+  // 2b. Add missing bounding-box faces
+  // ------------------------------------------------------------
 
-  for (size_t iteration = 0; iteration < iterations; ++iteration) {
+  for (Axis a = 0; a < DIMENSION; ++a) {
 
-    // Apply boundary and external face constraints.
-    applyConstraints(nodeIds, start, constrainedFlag, false);
+    for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
 
-    // Jacobi iteration: read from vertices and write
-    // into nextVertices.
-    auto nextVertices = vertices;
-
-    for (NodeId id = 0; id < vertices.size(); ++id) {
-
-      if (constrainedFlag[id])
+      if (missingAxis[a] != sign && missingAxis[a] != UNDEFINED)
         continue;
 
-      for (int axis = 0; axis < DIMENSION; ++axis) {
+      Voxel min = Eigen::Vector3i::Zero();
+      Voxel max = diff;
 
-        double sum = 0.0;
+      if (sign == POSITIVE) {
+        min[a] = max[a] - 1;
+      } else {
+        max[a] = 1;
+      }
 
-        for (NodeId neighbourId : neighbours[id]) {
-          sum += vertices[neighbourId][axis];
+      for (int x = min.x(); x <= max.x(); ++x) {
+        for (int y = min.y(); y <= max.y(); ++y) {
+          for (int z = min.z(); z <= max.z(); ++z) {
+
+            const NodeId id = nodeIds(x, y, z);
+
+            if (id != NO_NODE) {
+              getBoundaryNodes(a, sign).push_back(id);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 3. Build coordinate-wise Dirichlet constraints
+  // ------------------------------------------------------------
+
+  Eigen::Matrix<bool, Eigen::Dynamic, 3> constrained =
+      Eigen::Matrix<bool, Eigen::Dynamic, 3>::Constant(n, 3, false);
+
+  Eigen::MatrixXd boundaryValues = Eigen::MatrixXd::Zero(n, 3);
+
+  for (Axis a = 0; a < DIMENSION; ++a) {
+
+    const int coordinate = static_cast<int>(a);
+
+    for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
+
+      const auto &nodes = getBoundaryNodes(a, sign);
+
+      const double target = (sign == POSITIVE) ? 1.0 : 0.0;
+
+      for (NodeId id : nodes) {
+
+        if (id >= n) {
+          throw std::runtime_error("Invalid boundary node ID");
         }
 
-        nextVertices[id][axis] = sum / neighbours[id].size();
+        if (constrained(id, coordinate)) {
+
+          const double error =
+              std::abs(boundaryValues(id, coordinate) - target);
+
+          if (error > 1e-8) {
+            throw std::runtime_error("Inconsistent boundary constraints");
+          }
+
+        } else {
+
+          constrained(id, coordinate) = true;
+          boundaryValues(id, coordinate) = target;
+        }
+      }
+    }
+  }
+
+  // Keep this only if constrainedFlag is used elsewhere.
+  // It now indicates whether a node has at least one
+  // constrained coordinate.
+  constrainedFlag.resize(n);
+
+  for (NodeId i = 0; i < n; ++i) {
+    // constrainedFlag[i] =
+    //     constrained(i, 0) || constrained(i, 1) || constrained(i, 2);
+    constrainedFlag[i] = constrained(i, 2);
+  }
+
+  // ------------------------------------------------------------
+  // 4. Assemble global stiffness matrix
+  // ------------------------------------------------------------
+
+  std::vector<Eigen::Triplet<double>> triplets;
+
+  triplets.reserve(hexes.size() * 64);
+
+  for (const auto &hex : hexes) {
+
+    std::array<Vertex, 8> elementVertices;
+
+    for (int i = 0; i < 8; ++i) {
+      elementVertices[i] = vertices[hex[i]];
+    }
+
+    const ElementMatrix Ke = computeHexaStiffness(elementVertices);
+
+    for (int i = 0; i < 8; ++i) {
+      for (int j = 0; j < 8; ++j) {
+
+        triplets.emplace_back(hex[i], hex[j], Ke(i, j));
+      }
+    }
+  }
+
+  Eigen::SparseMatrix<double> K(n, n);
+
+  K.setFromTriplets(triplets.begin(), triplets.end());
+
+  K.makeCompressed();
+
+  // ------------------------------------------------------------
+  // 5. Solve independently for u, v and w
+  // ------------------------------------------------------------
+
+  Eigen::MatrixXd mappedVertices = Eigen::MatrixXd::Zero(n, 3);
+
+  for (int coordinate = 0; coordinate < 3; ++coordinate) {
+
+    std::vector<NodeId> interior;
+    std::vector<int> globalToInterior(n, -1);
+
+    // Find vertices whose current coordinate is unknown.
+    for (NodeId i = 0; i < n; ++i) {
+
+      if (!constrained(i, coordinate)) {
+
+        globalToInterior[i] = static_cast<int>(interior.size());
+
+        interior.push_back(i);
       }
     }
 
-    vertices.swap(nextVertices);
+    const int ni = static_cast<int>(interior.size());
+
+    // Store all prescribed values for this coordinate.
+    for (NodeId i = 0; i < n; ++i) {
+
+      if (constrained(i, coordinate)) {
+        mappedVertices(i, coordinate) = boundaryValues(i, coordinate);
+      }
+    }
+
+    if (ni == 0) {
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Build reduced system:
+    //
+    // K_II * x_I = -K_IB * x_B
+    // --------------------------------------------------------
+
+    std::vector<Eigen::Triplet<double>> reducedTriplets;
+
+    Eigen::VectorXd rhs = Eigen::VectorXd::Zero(ni);
+
+    for (int i = 0; i < ni; ++i) {
+
+      const NodeId globalI = interior[i];
+
+      // Eigen's default SparseMatrix is column-major.
+      // InnerIterator(K, globalI) iterates column globalI.
+      // Therefore, the varying index is it.row().
+      for (Eigen::SparseMatrix<double>::InnerIterator it(K, globalI); it;
+           ++it) {
+
+        const NodeId globalJ = it.row();
+
+        const double value = it.value();
+
+        if (constrained(globalJ, coordinate)) {
+
+          rhs[i] -= value * boundaryValues(globalJ, coordinate);
+
+        } else {
+
+          reducedTriplets.emplace_back(i, globalToInterior[globalJ], value);
+        }
+      }
+    }
+
+    Eigen::SparseMatrix<double> A(ni, ni);
+
+    A.setFromTriplets(reducedTriplets.begin(), reducedTriplets.end());
+
+    A.makeCompressed();
+
+    // --------------------------------------------------------
+    // Solve
+    // --------------------------------------------------------
+
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+
+    solver.compute(A);
+
+    if (solver.info() != Eigen::Success) {
+      throw std::runtime_error("Failed to factorize harmonic system");
+    }
+
+    const Eigen::VectorXd solution = solver.solve(rhs);
+
+    if (solver.info() != Eigen::Success || !solution.allFinite()) {
+      throw std::runtime_error("Failed to solve harmonic system");
+    }
+
+    // --------------------------------------------------------
+    // Store this coordinate
+    // --------------------------------------------------------
+
+    for (int i = 0; i < ni; ++i) {
+
+      mappedVertices(interior[i], coordinate) = solution[i];
+    }
   }
 
-  // Reapply constraints after the final smoothing iteration.
-  applyConstraints(nodeIds, start, constrainedFlag, true);
+  // ------------------------------------------------------------
+  // 6. Replace original coordinates with mapped coordinates
+  // ------------------------------------------------------------
+
+  for (NodeId i = 0; i < n; ++i) {
+
+    vertices[i] = mappedVertices.row(i).transpose();
+  }
 }
 
 void Cubifier::exportMesh(std::string filename) const {
@@ -251,8 +482,6 @@ void Cubifier::exportMesh(std::string filename) const {
     constrainedArray->SetValue(static_cast<vtkIdType>(i),
                                constrainedFlag[i] ? 1 : 0);
   }
-  std::cout << "VAL NB" << nb << " OUT OF " << constrainedFlag.size()
-            << std::endl;
 
   grid->GetPointData()->AddArray(constrainedArray);
 

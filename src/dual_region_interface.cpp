@@ -1,9 +1,9 @@
-#include "region_interface.hpp"
+#include "dual_region_interface.hpp"
 #include <iostream>
 #include <queue>
 
 InterfacePosition
-RegionInterface::getInterfacePosition(Axis cutDirection) const {
+DualRegionInterface::getInterfacePosition(Axis cutDirection) const {
   assert(cutDirection != normal);
   Axis cutDirectionNextAxis = (cutDirection + 1) % DIMENSION;
   if (cutDirectionNextAxis == normal) {

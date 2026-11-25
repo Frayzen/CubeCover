@@ -1,5 +1,5 @@
 #include "dual_saver.hpp"
-#include "region.hpp"
+#include "dual_region.hpp"
 
 #include <vtkCellData.h>
 #include <vtkIdTypeArray.h>
@@ -101,11 +101,11 @@ void saveDual(const std::string &filename, const VoxelMesh &mesh) {
                                    mesh.voxels.dimension(1),
                                    mesh.voxels.dimension(2));
 
-  for (const Region &r : mesh.regions) {
+  for (const DualRegion &r : mesh.regions) {
 
     std::array<Quads, DIMENSION> axisQuads;
 
-    for (const Region::Voxel &v : r) {
+    for (const DualRegion::Voxel &v : r) {
 
       const int i = v.x();
       const int j = v.y();
