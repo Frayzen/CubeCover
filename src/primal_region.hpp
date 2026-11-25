@@ -7,6 +7,7 @@
 class VoxelMesh;
 struct PrimalRegion {
   std::array<SurfaceId, NB_FACE_PER_HEX> surfaceIds;
+  std::vector<Voxel> voxels;
   /* VTK-LIKE ORDERING
 // 0	-	-	-
 // 1	+	-	-
@@ -19,6 +20,7 @@ struct PrimalRegion {
    */
   std::array<Voxel, NB_NODE_PER_HEX> corners;
   std::array<DualRegionId, NB_NODE_PER_HEX> dualRegions;
+
   PrimalRegion() {
     for (size_t i = 0; i < NB_FACE_PER_HEX; i++)
       surfaceIds[i] = NO_SURFACE;
@@ -26,6 +28,7 @@ struct PrimalRegion {
   inline SurfaceId &getSurfaceId(Axis a, IntegerSign sign) {
     return surfaceIds[a * 2 + (sign == POSITIVE ? 1 : 0)];
   }
+  Voxel getRegionNormals(DualRegionId dualRegionId) const;
   std::array<DualRegionId, NB_NODE_PER_QUAD>
   getRegionFromFace(Axis a, IntegerSign sign) const;
   void reorderDualRegionsToVTK(const VoxelMesh &mesh);

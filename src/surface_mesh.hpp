@@ -7,6 +7,9 @@
 #include "voxel_mesh.hpp"
 #include <vector>
 
+using GridVertex = std::array<SliceId, 3>;
+using EdgeKey = std::array<NodeId, 2>;
+
 struct SurfacePath {
   std::vector<EdgeId> edges;
   Axis normal;
@@ -45,6 +48,18 @@ private:
 
   std::set<DualRegionId> getBox(const DualRegionId id, bool &resMissingChild,
                                 std::set<Axis> excludedAxes = {}) const;
+
+  NodeId getVertexId(const GridVertex &p);
+
+  EdgeId getEdgeId(NodeId a, NodeId b);
+
+  QuadId addQuad(const std::array<GridVertex, 4> &corners,
+                 DualRegionId regionId, Axis normal, IntegerSign normalSign);
+  QuadId addQuad(Voxel v, DualRegionId regionId, Axis normal,
+                 IntegerSign normalSign);
+
+  std::map<EdgeKey, EdgeId> edgeToId;
+  std::map<GridVertex, NodeId> vertexToId;
 
 public:
   const VoxelMesh &m;
@@ -88,14 +103,14 @@ public:
 
   std::vector<NodeId> getNeighbours(NodeId vertexId) const;
 
-  std::vector<EdgeId>
-  findShortestPath(NodeId start, NodeId goal,
-                   std::array<double, DIMENSION> axisPenality) const;
+  std::vector<EdgeId> findShortestPath(NodeId start, NodeId goal) const;
 
   std::vector<SurfacePath> findPaths();
 
   void exportMesh(std::string filename) const;
   std::vector<PrimalRegion> buildPrimalRegions();
+
+  friend SurfaceMesh generateSurface(const VoxelMesh &m);
 };
 
 SurfaceMesh generateSurface(const VoxelMesh &m);

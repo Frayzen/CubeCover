@@ -76,18 +76,21 @@ int main(int argc, char *argv[]) {
   std::vector<Voxel> corners;
   saveDual("dual.vtu", mesh);
 
+  std::vector<PrimalRegion> primalRegions;
+
 #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   SurfaceMesh surfaceMesh = generateSurface(mesh);
-  surfaceMesh.buildPrimalRegions();
-  surfaceMesh.exportMesh("surface.vtu");
-  for (DualRegion &r : mesh.regions) {
-    if (r.id != 0)
-      continue;
-    Cubifier cubifier(surfaceMesh, r.id);
-    cubifier.exportMesh("cubifier" + std::to_string(r.id) + ".vtu");
-  }
+  surfaceMesh.findPaths();
+  primalRegions = surfaceMesh.buildPrimalRegions();
+  // for (DualRegion &r : mesh.regions) {
+  //   if (r.id != 0)
+  //     continue;
+  // Cubifier cubifier(surfaceMesh, r.id);
+  // cubifier.exportMesh("cubifier" + std::to_string(r.id) + ".vtu");
+  // }
 
+  surfaceMesh.exportMesh("surface.vtu");
 #endif
 
   VoxelMeshSaver saver(mesh);
@@ -154,6 +157,19 @@ int main(int argc, char *argv[]) {
   saver.addField("allowedCutX", allowedCutX);
   saver.addField("allowedCutY", allowedCutY);
   saver.addField("allowedCutZ", allowedCutZ);
+
+  std::vector<int> primalRegionIds(mesh.nbVoxel, NO_PRIMAL_REGION);
+  size_t curId = 0;
+  for (PrimalRegion &pr : primalRegions) {
+    for (Voxel &v : pr.voxels) {
+      VoxelId id = mesh.getId(v);
+      // assert(id != NO_VOXEL);
+      if (id != NO_VOXEL)
+        primalRegionIds[id] = curId;
+    }
+    curId++;
+  }
+  saver.addField("primalRegions", primalRegionIds);
 
   saver.saveMesh();
 }

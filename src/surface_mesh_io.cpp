@@ -11,6 +11,101 @@
 #include <vtkVertex.h>
 #include <vtkXMLUnstructuredGridWriter.h>
 
+// --------------------------------------------------------
+// Get or create vertex
+// --------------------------------------------------------
+
+NodeId SurfaceMesh::getVertexId(const GridVertex &p) {
+  auto [it, inserted] = vertexToId.emplace(p, nodes.size());
+
+  if (inserted) {
+    nodes.emplace_back(p[0], p[1], p[2]);
+    vertexToEdges.emplace_back();
+  }
+
+  return it->second;
+}
+
+// --------------------------------------------------------
+// Get or create edge
+// --------------------------------------------------------
+
+EdgeId SurfaceMesh::getEdgeId(NodeId a, NodeId b) {
+  EdgeKey key = {std::min(a, b), std::max(a, b)};
+
+  auto [it, inserted] = edgeToId.emplace(key, edges.size());
+
+  if (inserted) {
+    const EdgeId eId = it->second;
+
+    edges.push_back(key);
+
+    edgeToQuads.emplace_back();
+    edgeToPaths.emplace_back();
+
+    vertexToEdges[key[0]].push_back(eId);
+    vertexToEdges[key[1]].push_back(eId);
+  }
+
+  return it->second;
+}
+
+// --------------------------------------------------------
+// Add quad
+// --------------------------------------------------------
+
+QuadId SurfaceMesh::addQuad(const std::array<GridVertex, 4> &corners,
+                            DualRegionId regionId, Axis normal,
+                            IntegerSign normalSign) {
+  Quad quad;
+  QuadEdges quadEdges;
+
+  for (size_t i = 0; i < 4; ++i)
+    quad[i] = getVertexId(corners[i]);
+
+  for (size_t i = 0; i < 4; ++i) {
+    const size_t next = (i + 1) % 4;
+    quadEdges[i] = getEdgeId(quad[i], quad[next]);
+  }
+
+  const QuadId qId = quads.size();
+
+  quads.push_back(quad);
+  quadToEdges.push_back(quadEdges);
+  quadToRegion.push_back(regionId);
+  quadToNormal.push_back(normal);
+  quadToNormalSign.push_back(normalSign);
+  regionToQuadIds[regionId].push_back(qId);
+
+  for (EdgeId eId : quadEdges)
+    edgeToQuads[eId].push_back(qId);
+
+  return qId;
+}
+
+QuadId SurfaceMesh::addQuad(Voxel v, DualRegionId regionId, Axis normal,
+                            IntegerSign normalSign) {
+  std::array<GridVertex, 4> corners;
+  GridVertex cur = {v.x(), v.y(), v.z()};
+  if (normal == POSITIVE)
+    cur[normal]++;
+  Axis nextAxis = (normal + 1) % DIMENSION;
+  Axis prevAxis = (normal + 2) % DIMENSION;
+  size_t cornerId = 0;
+  std::array<Eigen::Vector2i, NB_NODE_PER_QUAD> offsets = {
+      Eigen::Vector2i(0, 0),
+      Eigen::Vector2i(0, 1),
+      Eigen::Vector2i(1, 1),
+      Eigen::Vector2i(1, 0),
+  };
+  for (auto offset : offsets) {
+    cur[nextAxis] = v[nextAxis] + offset[0];
+    cur[prevAxis] = v[prevAxis] + offset[1];
+    corners[cornerId++] = cur;
+  }
+  return addQuad(corners, regionId, normal, normalSign);
+}
+
 // ============================================================
 // Generate surface mesh
 // ============================================================
@@ -19,90 +114,9 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
 
   SurfaceMesh surface(m);
 
-  using GridVertex = std::array<SliceId, 3>;
-  using EdgeKey = std::array<NodeId, 2>;
-
-  std::map<GridVertex, NodeId> vertexToId;
-  std::map<EdgeKey, EdgeId> edgeToId;
-
   const SliceId nx = m.voxels.dimension(0);
   const SliceId ny = m.voxels.dimension(1);
   const SliceId nz = m.voxels.dimension(2);
-
-  // --------------------------------------------------------
-  // Get or create vertex
-  // --------------------------------------------------------
-
-  auto getVertexId = [&](const GridVertex &p) -> NodeId {
-    auto [it, inserted] = vertexToId.emplace(p, surface.nodes.size());
-
-    if (inserted) {
-
-      Voxel &v = surface.nodes.emplace_back(p[0], p[1], p[2]);
-      surface.vertexToEdges.emplace_back();
-    }
-
-    return it->second;
-  };
-
-  // --------------------------------------------------------
-  // Get or create edge
-  // --------------------------------------------------------
-
-  auto getEdgeId = [&](NodeId a, NodeId b) -> EdgeId {
-    EdgeKey key = {std::min(a, b), std::max(a, b)};
-
-    auto [it, inserted] = edgeToId.emplace(key, surface.edges.size());
-
-    if (inserted) {
-
-      const EdgeId eId = it->second;
-
-      surface.edges.push_back(key);
-
-      surface.edgeToQuads.emplace_back();
-      surface.edgeToPaths.emplace_back();
-
-      surface.vertexToEdges[key[0]].push_back(eId);
-      surface.vertexToEdges[key[1]].push_back(eId);
-    }
-
-    return it->second;
-  };
-
-  // --------------------------------------------------------
-  // Add quad
-  // --------------------------------------------------------
-
-  auto addQuad = [&](const std::array<GridVertex, 4> &corners,
-                     DualRegionId regionId, Axis normal,
-                     IntegerSign normalSign) {
-    Quad quad;
-
-    QuadEdges quadEdges;
-
-    for (size_t i = 0; i < 4; ++i)
-      quad[i] = getVertexId(corners[i]);
-
-    for (size_t i = 0; i < 4; ++i) {
-
-      const size_t next = (i + 1) % 4;
-
-      quadEdges[i] = getEdgeId(quad[i], quad[next]);
-    }
-
-    const QuadId qId = surface.quads.size();
-
-    surface.quads.push_back(quad);
-    surface.quadToEdges.push_back(quadEdges);
-    surface.quadToRegion.push_back(regionId);
-    surface.quadToNormal.push_back(normal);
-    surface.quadToNormalSign.push_back(normalSign);
-    surface.regionToQuadIds[regionId].push_back(qId);
-
-    for (EdgeId eId : quadEdges)
-      surface.edgeToQuads[eId].push_back(qId);
-  };
 
   // --------------------------------------------------------
   // Occupancy
@@ -137,14 +151,15 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
         // LEFT (-X)
         if (x == 0 || !isOccupied(x - 1, y, z)) {
 
-          addQuad({{{{x, y, z}}, {{x, y, zp}}, {{x, yp, zp}}, {{x, yp, z}}}},
-                  rId, 0, NEGATIVE);
+          surface.addQuad(
+              {{{{x, y, z}}, {{x, y, zp}}, {{x, yp, zp}}, {{x, yp, z}}}}, rId,
+              0, NEGATIVE);
         }
 
         // RIGHT (+X)
         if (!isOccupied(xp, y, z)) {
 
-          addQuad(
+          surface.addQuad(
               {{{{xp, y, z}}, {{xp, yp, z}}, {{xp, yp, zp}}, {{xp, y, zp}}}},
               rId, 0, POSITIVE);
         }
@@ -152,14 +167,15 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
         // FRONT (-Y)
         if (y == 0 || !isOccupied(x, y - 1, z)) {
 
-          addQuad({{{{x, y, z}}, {{xp, y, z}}, {{xp, y, zp}}, {{x, y, zp}}}},
-                  rId, 1, NEGATIVE);
+          surface.addQuad(
+              {{{{x, y, z}}, {{xp, y, z}}, {{xp, y, zp}}, {{x, y, zp}}}}, rId,
+              1, NEGATIVE);
         }
 
         // BACK (+Y)
         if (!isOccupied(x, yp, z)) {
 
-          addQuad(
+          surface.addQuad(
               {{{{x, yp, z}}, {{x, yp, zp}}, {{xp, yp, zp}}, {{xp, yp, z}}}},
               rId, 1, POSITIVE);
         }
@@ -167,14 +183,15 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
         // BOTTOM (-Z)
         if (z == 0 || !isOccupied(x, y, z - 1)) {
 
-          addQuad({{{{x, y, z}}, {{x, yp, z}}, {{xp, yp, z}}, {{xp, y, z}}}},
-                  rId, 2, NEGATIVE);
+          surface.addQuad(
+              {{{{x, y, z}}, {{x, yp, z}}, {{xp, yp, z}}, {{xp, y, z}}}}, rId,
+              2, NEGATIVE);
         }
 
         // TOP (+Z)
         if (!isOccupied(x, y, zp)) {
 
-          addQuad(
+          surface.addQuad(
               {{{{x, y, zp}}, {{xp, y, zp}}, {{xp, yp, zp}}, {{x, yp, zp}}}},
               rId, 2, POSITIVE);
         }
@@ -232,7 +249,9 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
   vtkNew<vtkQuad> quad;
 
-#define COLORIZE
+  if (quadToAxisConstraint.empty())
+    std::cerr << "Warning: quad to axis constraint is empty" << std::endl;
+
   for (QuadId qId = 0; qId < quads.size(); ++qId) {
 
     const auto &face = quads[qId];
@@ -250,9 +269,10 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     cellTypes->InsertNextValue(0);
     regionIds->InsertNextValue(static_cast<int>(quadToRegion[qId]));
-#ifdef COLORIZE
-    quadColor->InsertNextValue(quadToAxisConstraint[qId]);
-#endif
+    if (quadToAxisConstraint.size() > qId)
+      quadColor->InsertNextValue(quadToAxisConstraint[qId]);
+    else
+      quadColor->InsertNextValue(-1);
 
     pathIds->InsertNextValue(-1);
     pathNormals->InsertNextValue(-1);
@@ -277,9 +297,7 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     cellTypes->InsertNextValue(1);
     regionIds->InsertNextValue(static_cast<int>(rId));
-#ifdef COLORIZE
     quadColor->InsertNextValue(-1);
-#endif
 
     pathIds->InsertNextValue(-1);
     pathNormals->InsertNextValue(-1);
@@ -332,9 +350,7 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
       cellTypes->InsertNextValue(2);
       regionIds->InsertNextValue(-1);
-#ifdef COLORIZE
       quadColor->InsertNextValue(-1);
-#endif
 
       pathIds->InsertNextValue(static_cast<int>(pId));
       pathNormals->InsertNextValue(static_cast<int>(path.normal));
@@ -349,9 +365,7 @@ void SurfaceMesh::exportMesh(std::string filename) const {
   grid->GetCellData()->AddArray(regionIds);
   grid->GetCellData()->AddArray(pathIds);
   grid->GetCellData()->AddArray(pathNormals);
-#ifdef COLORIZE
   grid->GetCellData()->AddArray(quadColor);
-#endif
   grid->GetPointData()->AddArray(isCorner);
 
   // ========================================================

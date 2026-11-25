@@ -104,9 +104,8 @@ std::vector<NodeId> SurfaceMesh::getNeighbours(NodeId vertexId) const {
 // Dijkstra shortest path
 // ============================================================
 
-std::vector<EdgeId> SurfaceMesh::findShortestPath(
-    NodeId start, NodeId goal,
-    std::array<double, DIMENSION> axisPenality) const {
+std::vector<EdgeId> SurfaceMesh::findShortestPath(NodeId start,
+                                                  NodeId goal) const {
 
   using QueueItem = std::pair<double, NodeId>;
 
@@ -144,25 +143,27 @@ std::vector<EdgeId> SurfaceMesh::findShortestPath(
 
       const NodeId neighbor = edge[0] == current ? edge[1] : edge[0];
 
-      Voxel dir = nodes[current] - nodes[neighbor];
-      double weight = dir.norm();
+      assert(current != neighbor);
+      Voxel edgeDirection = nodes[current] - nodes[neighbor];
+      double weight = edgeDirection.norm();
 
       std::array<bool, DIMENSION> foundAxis = {false, false, false};
       size_t amountDifferentAxis = 0;
       Axis dirAxis = NO_AXIS;
+      for (Axis a = 0; a < DIMENSION; a++)
+        if (std::abs(edgeDirection[a]) > m.voxelSize / 2)
+          dirAxis = a;
+      assert(dirAxis != NO_AXIS);
       for (QuadId qId : edgeToQuads[eId]) {
         Axis a = quadToNormal[qId];
         if (!foundAxis[a])
           amountDifferentAxis++;
-        if (dir[a] > m.voxelSize / 2)
-          dirAxis = a;
         foundAxis[a] = true;
       }
 
       // Done in order to prefer sharp edges rather than planar surfaces
       if (amountDifferentAxis == 1)
         weight *= (1 + weight / 100.0);
-      weight *= axisPenality[dirAxis];
 
       const double candidate = currentDist + weight;
 
@@ -223,18 +224,7 @@ std::vector<SurfacePath> SurfaceMesh::findPaths() {
 
         path.normal = interface.normal;
 
-        std::array<double, DIMENSION> axisPenality;
-        for (Axis a = 0; a < DIMENSION; a++) {
-          if (a == interface.normal)
-            axisPenality[a] = 0;
-          else if (adj.boundaryNormals[a] != r.boundaryNormals[a])
-            axisPenality[a] = 1;
-          else
-            axisPenality[a] = 2;
-        }
-
-        path.edges = findShortestPath(regionCorners[rId], regionCorners[adjId],
-                                      axisPenality);
+        path.edges = findShortestPath(regionCorners[rId], regionCorners[adjId]);
 
         const PathId pathId = paths.size();
 
@@ -456,18 +446,51 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
 
   // add missing internal surfaces
   for (PrimalRegion &primalRegion : primalRegions) {
-    for (Axis a = 0; a < DIMENSION; a++) {
+    for (Axis missingAxis = 0; missingAxis < DIMENSION; missingAxis++) {
       for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
-        SurfaceId &sId = primalRegion.getSurfaceId(a, sign);
-        if (sId != NO_SURFACE)
+        SurfaceId &primalSurfaceId =
+            primalRegion.getSurfaceId(missingAxis, sign);
+        if (primalSurfaceId != NO_SURFACE)
           continue;
         std::array<DualRegionId, NB_NODE_PER_QUAD> faceDualRegions =
-            primalRegion.getRegionFromFace(a, sign);
-#ifdef DEBUG
-        size_t first = nodes[regionCorners[*faceDualRegions.begin()]][a];
+            primalRegion.getRegionFromFace(missingAxis, sign);
+
+        size_t layer =
+            nodes[regionCorners[*faceDualRegions.begin()]][missingAxis];
         for (DualRegionId rId : faceDualRegions)
-          assert(nodes[regionCorners[rId]][a] == first);
-#endif
+          assert(nodes[regionCorners[rId]][missingAxis] == layer);
+        if (sign == POSITIVE) // because voxel coords are bottom parts
+          layer--;
+        SurfaceId createdSurfaceId = surfaces.size();
+        Surface &createdSurface = surfaces.emplace_back();
+        createdSurface.sign = sign;
+        createdSurface.normal = missingAxis;
+        for (DualRegionId rId : faceDualRegions) {
+          Voxel regionNormals = primalRegion.getRegionNormals(rId);
+          assert(regionNormals[missingAxis] == (sign == POSITIVE ? 1 : -1));
+          createdSurface.regions.insert(rId);
+        }
+        DualRegionId minRegion = faceDualRegions[0];
+        DualRegionId maxRegion = faceDualRegions[2];
+        Voxel min = nodes[regionCorners[minRegion]];
+        Voxel max = nodes[regionCorners[maxRegion]];
+        // TODO fix that
+        if (sign == POSITIVE)
+          min[missingAxis]--;
+        std::cout << "GOT " << min.transpose() << " AND " << max.transpose()
+                  << std::endl;
+        for (size_t i = min.x(); i < max.x(); i++) {
+          for (size_t j = min.y(); j < max.y(); j++) {
+            for (size_t k = min.z(); k < max.z(); k++) {
+              Voxel v(i, j, k);
+              DualRegionId rId = m.voxelToRegion(i, j, k);
+              createdSurface.quads.push_back(
+                  addQuad(v, rId, missingAxis, sign));
+            }
+          }
+        }
+
+        primalSurfaceId = createdSurfaceId;
       }
     }
   }
@@ -475,17 +498,25 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
   auto dim = m.voxels.dimensions();
   Eigen::Tensor<PrimalRegionId, DIMENSION> voxelToPrimalRegion(dim[0], dim[1],
                                                                dim[2]);
+  voxelToPrimalRegion.setConstant(NO_PRIMAL_REGION);
   for (PrimalRegionId prId = 0; prId < primalRegions.size(); prId++) {
     for (SurfaceId sId : primalRegions[prId].surfaceIds) {
       assert(sId != NO_SURFACE);
-      for (QuadId qId : surfaces[sId].quads) {
+      Surface &surface = surfaces[sId];
+      for (QuadId qId : surface.quads) {
         Voxel v = nodes[quads[qId][0]];
+        if (quadToNormalSign[qId] == POSITIVE)
+          v[quadToNormal[qId]]--;
+        assert(v.x() >= 0 && v.y() >= 0 && v.z() >= 0);
+        assert(v.x() < dim[0] && v.y() < dim[1] && v.z() < dim[2]);
+        if (voxelToPrimalRegion(v.x(), v.y(), v.z()) != NO_PRIMAL_REGION)
+          continue;
         voxelToPrimalRegion(v.x(), v.y(), v.z()) = prId;
+        primalRegions[prId].voxels.push_back(v);
       }
     }
   }
 
   quadToAxisConstraint = colors;
-  std::cout << "GOT " << primalRegions.size() << std::endl;
   return primalRegions;
 }

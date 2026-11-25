@@ -77,6 +77,7 @@ void PrimalRegion::reorderDualRegionsToVTK(const VoxelMesh &mesh) {
 
   dualRegions = reordered;
 }
+
 std::array<DualRegionId, NB_NODE_PER_QUAD>
 PrimalRegion::getRegionFromFace(Axis a, IntegerSign sign) const {
   const std::array<size_t, NB_NODE_PER_QUAD>
@@ -102,3 +103,18 @@ PrimalRegion::getRegionFromFace(Axis a, IntegerSign sign) const {
     res[i] = dualRegions[localIds[i]];
   return res;
 }
+
+Voxel PrimalRegion::getRegionNormals(DualRegionId dualRegionId) const {
+  const std::array<Voxel, NB_NODE_PER_HEX> normals = {
+      Voxel(-1, -1, -1), Voxel(+1, -1, -1), Voxel(+1, +1, -1),
+      Voxel(-1, +1, -1), Voxel(-1, -1, +1), Voxel(+1, -1, +1),
+      Voxel(+1, +1, +1), Voxel(-1, +1, +1),
+  };
+  size_t i = 0;
+  for (DualRegionId rId : dualRegions) {
+    if (rId == dualRegionId)
+      return normals[i];
+    i++;
+  }
+  throw std::runtime_error("Dual region id not in the regions");
+};
