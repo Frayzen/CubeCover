@@ -32,11 +32,11 @@ find_package(Eigen3 REQUIRED)
 file(GLOB_RECURSE SOURCE_FILES "${CMAKE_SOURCE_DIR}/src/*.cpp")
 message(DEBUG "SOURCES: ${SOURCE_FILES}")
 
-add_executable(CubeCover ${SOURCE_FILES})
-target_include_directories(CubeCover PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_executable(Hexcentric ${SOURCE_FILES})
+target_include_directories(Hexcentric PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-target_link_libraries(CubeCover PRIVATE Eigen3::Eigen)
-target_link_libraries(CubeCover PRIVATE
+target_link_libraries(Hexcentric PRIVATE Eigen3::Eigen)
+target_link_libraries(Hexcentric PRIVATE
     VTK::CommonCore
     VTK::CommonDataModel
     VTK::IOLegacy
@@ -46,7 +46,7 @@ target_link_libraries(CubeCover PRIVATE
 # find_package(Kokkos 4.2 REQUIRED CONFIG)
 
 vtk_module_autoinit(
-    TARGETS CubeCover
+    TARGETS Hexcentric
     MODULES
         VTK::CommonCore
         VTK::CommonDataModel

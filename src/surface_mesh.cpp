@@ -463,9 +463,11 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
           continue;
         std::array<DualRegionId, NB_NODE_PER_QUAD> faceDualRegions =
             primalRegion.getRegionFromFace(a, sign);
+#ifdef DEBUG
         size_t first = nodes[regionCorners[*faceDualRegions.begin()]][a];
         for (DualRegionId rId : faceDualRegions)
           assert(nodes[regionCorners[rId]][a] == first);
+#endif
       }
     }
   }
