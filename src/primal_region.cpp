@@ -21,9 +21,11 @@ void PrimalRegion::reorderDualRegionsToVTK(const VoxelMesh &mesh) {
   }};
 
   const auto oldDualRegions = dualRegions;
+  const auto oldCorners = corners;
 
   std::array<std::array<int, DIMENSION>, N> signs{};
-  std::array<DualRegionId, N> reordered{};
+  std::array<DualRegionId, N> reorderedDualRegions{};
+  std::array<Voxel, N> reorderedCorners{};
 
   for (size_t i = 0; i < N; ++i) {
     const auto &region = mesh.regions[oldDualRegions[i]];
@@ -52,7 +54,7 @@ void PrimalRegion::reorderDualRegionsToVTK(const VoxelMesh &mesh) {
     assert(positiveCount == 4);
   }
 
-  // Reorder according to VTK node numbering.
+  // Reorder both arrays according to VTK node numbering.
   std::array<bool, N> assigned{};
 
   for (size_t i = 0; i < N; ++i) {
@@ -62,7 +64,9 @@ void PrimalRegion::reorderDualRegionsToVTK(const VoxelMesh &mesh) {
       if (signs[i] == vtkOrder[vtkId]) {
         assert(!assigned[vtkId]);
 
-        reordered[vtkId] = oldDualRegions[i];
+        reorderedDualRegions[vtkId] = oldDualRegions[i];
+        reorderedCorners[vtkId] = oldCorners[i];
+
         assigned[vtkId] = true;
         found = true;
         break;
@@ -75,7 +79,8 @@ void PrimalRegion::reorderDualRegionsToVTK(const VoxelMesh &mesh) {
   for (bool value : assigned)
     assert(value);
 
-  dualRegions = reordered;
+  dualRegions = reorderedDualRegions;
+  corners = reorderedCorners;
 }
 
 std::array<DualRegionId, NB_NODE_PER_QUAD>

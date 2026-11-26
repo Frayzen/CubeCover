@@ -81,16 +81,15 @@ int main(int argc, char *argv[]) {
 #define COMPUTEPATHS
 #ifdef COMPUTEPATHS
   SurfaceMesh surfaceMesh = generateSurface(mesh);
-  surfaceMesh.findPaths();
   primalRegions = surfaceMesh.buildPrimalRegions();
-  // for (DualRegion &r : mesh.regions) {
-  //   if (r.id != 0)
-  //     continue;
-  // Cubifier cubifier(surfaceMesh, r.id);
-  // cubifier.exportMesh("cubifier" + std::to_string(r.id) + ".vtu");
+  size_t i = 0;
+  // for (PrimalRegion &pr : primalRegions) {
+  //   Cubifier cubifier(surfaceMesh, pr);
+  //   cubifier.exportMesh("cubifier" + std::to_string(i) + ".vtu");
+  //   i++;
   // }
 
-  surfaceMesh.exportMesh("surface.vtu");
+  surfaceMesh.exportMesh("surface.vtu", primalRegions);
 #endif
 
   VoxelMeshSaver saver(mesh);

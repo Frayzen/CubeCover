@@ -97,8 +97,8 @@ void Cubifier::build() {
   hexes.clear();
   constrainedFlag.clear();
 
-  const auto start = region.startSlices;
-  const auto diff = region.endSlices - start;
+  const auto start = region.startVoxel;
+  const auto diff = region.endVoxel - start;
 
   using NodeIdsTensor = Eigen::Tensor<NodeId, 3>;
 
@@ -150,7 +150,7 @@ void Cubifier::build() {
   const NodeId n = static_cast<NodeId>(vertices.size());
 
   if (n == 0) {
-    throw std::runtime_error("No vertices were generated");
+    std::runtime_error("No vertices were generated");
   }
 
   // ------------------------------------------------------------
@@ -168,69 +168,20 @@ void Cubifier::build() {
   };
 
   // ------------------------------------------------------------
-  // 2a. Boundary nodes identified by the surface mesh
+  // 2. Boundary nodes identified by the surface mesh
   // ------------------------------------------------------------
 
-  const auto &quadIds = surfaceMesh.regionToQuadIds[region.id];
-
-  std::array<IntegerSign, 3> missingAxis = {UNDEFINED, UNDEFINED, UNDEFINED};
-
-  for (const auto quadId : quadIds) {
-
-    const Axis a = surfaceMesh.quadToAxisConstraint[quadId];
-
-    const IntegerSign sign = region.facesNormals[a];
-
-    // The opposite face may need to be added from the
-    // region's bounding box.
-    missingAxis[a] = (sign == POSITIVE) ? NEGATIVE : POSITIVE;
-
-    for (const auto surfaceNodeId : surfaceMesh.quads[quadId]) {
-
-      auto nodePos = surfaceMesh.nodes[surfaceNodeId] - start;
-
-      const NodeId id = nodeIds(nodePos.x(), nodePos.y(), nodePos.z());
-
-      if (id == NO_NODE) {
-        throw std::runtime_error(
-            "Surface node does not belong to the voxel region");
-      }
-
-      getBoundaryNodes(a, sign).push_back(id);
-    }
-  }
-
-  // ------------------------------------------------------------
-  // 2b. Add missing bounding-box faces
-  // ------------------------------------------------------------
-
-  for (Axis a = 0; a < DIMENSION; ++a) {
-
-    for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
-
-      if (missingAxis[a] != sign && missingAxis[a] != UNDEFINED)
-        continue;
-
-      Voxel min = Eigen::Vector3i::Zero();
-      Voxel max = diff;
-
-      if (sign == POSITIVE) {
-        min[a] = max[a] - 1;
-      } else {
-        max[a] = 1;
-      }
-
-      for (int x = min.x(); x <= max.x(); ++x) {
-        for (int y = min.y(); y <= max.y(); ++y) {
-          for (int z = min.z(); z <= max.z(); ++z) {
-
-            const NodeId id = nodeIds(x, y, z);
-
-            if (id != NO_NODE) {
-              getBoundaryNodes(a, sign).push_back(id);
-            }
-          }
+  for (auto &sId : region.surfaceIds) {
+    const Surface &surface = surfaceMesh.surfaces[sId];
+    for (QuadId quadId : surface.quads) {
+      for (const auto surfaceNodeId : surfaceMesh.quads[quadId]) {
+        auto nodePos = surfaceMesh.nodes[surfaceNodeId] - start;
+        const NodeId id = nodeIds(nodePos.x(), nodePos.y(), nodePos.z());
+        if (id == NO_NODE) {
+          throw std::runtime_error(
+              "Surface node does not belong to the voxel region");
         }
+        getBoundaryNodes(surface.normal, surface.sign).push_back(id);
       }
     }
   }

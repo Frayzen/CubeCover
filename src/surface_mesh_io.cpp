@@ -202,7 +202,9 @@ SurfaceMesh generateSurface(const VoxelMesh &m) {
   return surface;
 }
 
-void SurfaceMesh::exportMesh(std::string filename) const {
+void SurfaceMesh::exportMesh(
+    std::string filename,
+    const std::vector<PrimalRegion> &primalRegions) const {
 
   if (quads.size() != quadToRegion.size()) {
     throw std::runtime_error("SurfaceMesh: quadToRegion size mismatch.");
@@ -214,6 +216,47 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
   if (paths.size() == 0 && !m.regions.empty()) {
     // Empty paths are allowed.
+  }
+
+  // Map each boundary quad to its primal region and surface.
+  std::vector<int> quadToPrimalRegionId(quads.size(), -1);
+  std::vector<int> quadToSurfaceId(quads.size(), -1);
+  std::vector<int> quadToSurfaceNormal(quads.size(), -1);
+  std::vector<int> quadToSurfaceSign(quads.size(), -1);
+
+  for (PrimalRegionId prId = 0; prId < primalRegions.size(); ++prId) {
+
+    for (SurfaceId sId : primalRegions[prId].surfaceIds) {
+
+      if (sId == NO_SURFACE)
+        continue;
+
+      if (sId >= surfaces.size())
+        throw std::runtime_error("SurfaceMesh: invalid surface index.");
+
+      const Surface &surface = surfaces[sId];
+
+      for (QuadId qId : surface.quads) {
+
+        if (qId >= quads.size())
+          throw std::runtime_error("SurfaceMesh: invalid surface quad index.");
+
+        // A quad must have a unique primal-region/surface association.
+        if (quadToPrimalRegionId[qId] != -1) {
+          if (quadToPrimalRegionId[qId] != static_cast<int>(prId) ||
+              quadToSurfaceId[qId] != static_cast<int>(sId)) {
+            throw std::runtime_error("SurfaceMesh: quad belongs to multiple "
+                                     "primal region surfaces.");
+          }
+          continue;
+        }
+
+        quadToPrimalRegionId[qId] = static_cast<int>(prId);
+        quadToSurfaceId[qId] = static_cast<int>(sId);
+        quadToSurfaceNormal[qId] = static_cast<int>(surface.normal);
+        quadToSurfaceSign[qId] = surface.sign == POSITIVE ? 1 : -1;
+      }
+    }
   }
 
   vtkNew<vtkPoints> points;
@@ -242,6 +285,21 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
   vtkNew<vtkIntArray> pathNormals;
   pathNormals->SetName("PathNormal");
+
+  vtkNew<vtkIntArray> primalRegionIds;
+  primalRegionIds->SetName("PrimalRegionId");
+
+  vtkNew<vtkIntArray> surfaceIds;
+  surfaceIds->SetName("SurfaceId");
+
+  vtkNew<vtkIntArray> surfaceNormals;
+  surfaceNormals->SetName("SurfaceNormal");
+
+  vtkNew<vtkIntArray> surfaceSigns;
+  surfaceSigns->SetName("SurfaceSign");
+
+  vtkNew<vtkIntArray> isBoundary;
+  isBoundary->SetName("IsBoundary");
 
   // ========================================================
   // Quads
@@ -276,6 +334,12 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     pathIds->InsertNextValue(-1);
     pathNormals->InsertNextValue(-1);
+    primalRegionIds->InsertNextValue(quadToPrimalRegionId[qId]);
+    surfaceIds->InsertNextValue(quadToSurfaceId[qId]);
+    surfaceNormals->InsertNextValue(quadToSurfaceNormal[qId]);
+    surfaceSigns->InsertNextValue(quadToSurfaceSign[qId]);
+
+    isBoundary->InsertNextValue(quadToPrimalRegionId[qId] != -1 ? 1 : 0);
   }
 
   // ========================================================
@@ -301,6 +365,11 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
     pathIds->InsertNextValue(-1);
     pathNormals->InsertNextValue(-1);
+    primalRegionIds->InsertNextValue(-1);
+    surfaceIds->InsertNextValue(-1);
+    surfaceNormals->InsertNextValue(-1);
+    surfaceSigns->InsertNextValue(-1);
+    isBoundary->InsertNextValue(0);
   }
 
   vtkNew<vtkIntArray> isCorner;
@@ -354,6 +423,11 @@ void SurfaceMesh::exportMesh(std::string filename) const {
 
       pathIds->InsertNextValue(static_cast<int>(pId));
       pathNormals->InsertNextValue(static_cast<int>(path.normal));
+      primalRegionIds->InsertNextValue(-1);
+      surfaceIds->InsertNextValue(-1);
+      surfaceNormals->InsertNextValue(-1);
+      surfaceSigns->InsertNextValue(-1);
+      isBoundary->InsertNextValue(0);
     }
   }
 
@@ -367,6 +441,11 @@ void SurfaceMesh::exportMesh(std::string filename) const {
   grid->GetCellData()->AddArray(pathNormals);
   grid->GetCellData()->AddArray(quadColor);
   grid->GetPointData()->AddArray(isCorner);
+  grid->GetCellData()->AddArray(primalRegionIds);
+  grid->GetCellData()->AddArray(surfaceIds);
+  grid->GetCellData()->AddArray(surfaceNormals);
+  grid->GetCellData()->AddArray(surfaceSigns);
+  grid->GetCellData()->AddArray(isBoundary);
 
   // ========================================================
   // Write VTU

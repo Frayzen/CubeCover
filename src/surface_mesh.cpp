@@ -298,7 +298,6 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
   std::vector<Axis> colors(quads.size(), NO_AXIS);
 
   // add boundary surfaces
-
   for (QuadId seed = 0; seed < quads.size(); ++seed) {
 
     if (visited[seed])
@@ -444,8 +443,33 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
     primalRegion.reorderDualRegionsToVTK(m);
   }
 
-  // add missing internal surfaces
-  size_t i = 0;
+  // FLOOD ALGORITHM'S
+  auto dim = m.voxels.dimensions();
+  Eigen::Tensor<PrimalRegionId, DIMENSION> voxelToPrimalRegion(dim[0], dim[1],
+                                                               dim[2]);
+  voxelToPrimalRegion.setConstant(NO_PRIMAL_REGION);
+
+  // fill the boundary surfaces
+  for (PrimalRegionId prId = 0; prId < primalRegions.size(); prId++) {
+    for (SurfaceId sId : primalRegions[prId].surfaceIds) {
+      if (sId == NO_SURFACE)
+        continue;
+      Surface &surface = surfaces[sId];
+      for (QuadId qId : surface.quads) {
+        Voxel v = nodes[quads[qId][0]];
+        if (quadToNormalSign[qId] == POSITIVE)
+          v[quadToNormal[qId]]--;
+        assert(v.x() >= 0 && v.y() >= 0 && v.z() >= 0);
+        assert(v.x() < dim[0] && v.y() < dim[1] && v.z() < dim[2]);
+        if (voxelToPrimalRegion(v.x(), v.y(), v.z()) != NO_PRIMAL_REGION)
+          continue;
+        voxelToPrimalRegion(v.x(), v.y(), v.z()) = prId;
+        primalRegions[prId].voxels.push_back(v);
+      }
+    }
+  }
+  // fill missing internal surfaces
+  size_t primalRegionId = 0;
   for (PrimalRegion &primalRegion : primalRegions) {
     for (Axis missingAxis = 0; missingAxis < DIMENSION; missingAxis++) {
       for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
@@ -462,64 +486,29 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
           assert(nodes[regionCorners[rId]][missingAxis] == layer);
         if (sign == POSITIVE) // because voxel coords are bottom parts
           layer--;
-        SurfaceId createdSurfaceId = surfaces.size();
-        Surface &createdSurface = surfaces.emplace_back();
-        createdSurface.sign = sign;
-        createdSurface.normal = missingAxis;
-        for (DualRegionId rId : faceDualRegions) {
-          Voxel regionNormals = primalRegion.getRegionNormals(rId);
-          assert(regionNormals[missingAxis] == (sign == POSITIVE ? 1 : -1));
-          createdSurface.regions.insert(rId);
-        }
         DualRegionId minRegion = faceDualRegions[0];
         DualRegionId maxRegion = faceDualRegions[2];
         Voxel min = nodes[regionCorners[minRegion]];
         Voxel max = nodes[regionCorners[maxRegion]];
-
         // Decide on which side of the face we are iterating depending on the
         // normal
         if (sign == POSITIVE)
           min[missingAxis]--;
         else
           max[missingAxis]++;
-        // std::cout << "GOT " << min.transpose() << " AND " << max.transpose()
-        //           << " FOR " << i << " SIGN " << sign << std::endl;
         for (size_t i = min.x(); i < max.x(); i++) {
           for (size_t j = min.y(); j < max.y(); j++) {
             for (size_t k = min.z(); k < max.z(); k++) {
-              Voxel v(i, j, k);
-              DualRegionId rId = m.voxelToRegion(i, j, k);
-              createdSurface.quads.push_back(
-                  addQuad(v, rId, missingAxis, sign));
+              if (voxelToPrimalRegion(i, j, k) != NO_PRIMAL_REGION)
+                continue;
+              voxelToPrimalRegion(i, j, k) = primalRegionId;
+              primalRegion.voxels.push_back(Voxel(i, j, k));
             }
           }
         }
-        primalSurfaceId = createdSurfaceId;
       }
     }
-    i++;
-  }
-
-  auto dim = m.voxels.dimensions();
-  Eigen::Tensor<PrimalRegionId, DIMENSION> voxelToPrimalRegion(dim[0], dim[1],
-                                                               dim[2]);
-  voxelToPrimalRegion.setConstant(NO_PRIMAL_REGION);
-  for (PrimalRegionId prId = 0; prId < primalRegions.size(); prId++) {
-    for (SurfaceId sId : primalRegions[prId].surfaceIds) {
-      assert(sId != NO_SURFACE);
-      Surface &surface = surfaces[sId];
-      for (QuadId qId : surface.quads) {
-        Voxel v = nodes[quads[qId][0]];
-        if (quadToNormalSign[qId] == POSITIVE)
-          v[quadToNormal[qId]]--;
-        assert(v.x() >= 0 && v.y() >= 0 && v.z() >= 0);
-        assert(v.x() < dim[0] && v.y() < dim[1] && v.z() < dim[2]);
-        if (voxelToPrimalRegion(v.x(), v.y(), v.z()) != NO_PRIMAL_REGION)
-          continue;
-        voxelToPrimalRegion(v.x(), v.y(), v.z()) = prId;
-        primalRegions[prId].voxels.push_back(v);
-      }
-    }
+    primalRegionId++;
   }
 
   // Initialize the flooding queue with all boundary voxels.
@@ -537,6 +526,8 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
     queue.pop();
 
     PrimalRegionId prId = voxelToPrimalRegion(v.x(), v.y(), v.z());
+    primalRegions[prId].startVoxel = primalRegions[prId].startVoxel.cwiseMin(v);
+    primalRegions[prId].endVoxel = primalRegions[prId].endVoxel.cwiseMax(v);
 
     assert(prId != NO_PRIMAL_REGION);
 
@@ -565,12 +556,49 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
   }
 
   size_t amountColoredVoxel = 0;
-  for (PrimalRegion &pr : primalRegions)
+  for (PrimalRegion &pr : primalRegions) {
+    pr.endVoxel += Voxel::Ones();
     amountColoredVoxel += pr.voxels.size();
+  }
   assert(amountColoredVoxel == m.nbVoxel);
 
-  quadToAxisConstraint = colors;
-  return primalRegions;
+  // create inside surfaces
+  for (PrimalRegion &primalRegion : primalRegions) {
+    for (Axis missingAxis = 0; missingAxis < DIMENSION; missingAxis++) {
+      for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
+        SurfaceId &primalSurfaceId =
+            primalRegion.getSurfaceId(missingAxis, sign);
+        if (primalSurfaceId != NO_SURFACE)
+          continue;
+        std::array<DualRegionId, NB_NODE_PER_QUAD> faceDualRegions =
+            primalRegion.getRegionFromFace(missingAxis, sign);
+        size_t layer =
+            nodes[regionCorners[*faceDualRegions.begin()]][missingAxis];
+        if (sign == POSITIVE) // because voxel coords are bottom parts
+          layer--;
+        SurfaceId createdSurfaceId = surfaces.size();
+        Surface &createdSurface = surfaces.emplace_back();
+        createdSurface.sign = sign;
+        createdSurface.normal = missingAxis;
+        for (DualRegionId rId : faceDualRegions) {
+          Voxel regionNormals = primalRegion.getRegionNormals(rId);
+          assert(regionNormals[missingAxis] == (sign == POSITIVE ? 1 : -1));
+          createdSurface.regions.insert(rId);
+        }
+        for (Voxel v : primalRegion.voxels) {
+          if (v[missingAxis] != layer)
+            continue;
+          DualRegionId rId = m.voxelToRegion(v.x(), v.y(), v.z());
+          createdSurface.quads.push_back(addQuad(v, rId, missingAxis, sign));
+        }
+        primalSurfaceId = createdSurfaceId;
+      }
+    }
+  }
+
+  for (PrimalRegionId prId = 0; prId < primalRegions.size(); prId++)
+    for (SurfaceId sId : primalRegions[prId].surfaceIds)
+      assert(sId != NO_SURFACE);
 
   quadToAxisConstraint = colors;
   return primalRegions;

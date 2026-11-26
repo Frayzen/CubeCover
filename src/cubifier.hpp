@@ -24,13 +24,12 @@ public:
 
   const SurfaceMesh &surfaceMesh;
   const VoxelMesh &mesh;
-  const DualRegion &region;
+  const PrimalRegion &region;
 
   std::vector<Voxel> nodeGridCoordinates;
 
-  Cubifier(const SurfaceMesh &surfaceMesh, DualRegionId regionId)
-      : surfaceMesh(surfaceMesh), mesh(surfaceMesh.m),
-        region(mesh.regions[regionId]) {
+  Cubifier(const SurfaceMesh &surfaceMesh, PrimalRegion &primalRegion)
+      : surfaceMesh(surfaceMesh), mesh(surfaceMesh.m), region(primalRegion) {
     build();
   }
 

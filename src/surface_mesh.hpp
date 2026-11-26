@@ -107,7 +107,8 @@ public:
 
   std::vector<SurfacePath> findPaths();
 
-  void exportMesh(std::string filename) const;
+  void exportMesh(std::string filename,
+                  const std::vector<PrimalRegion> &primalRegions) const;
   std::vector<PrimalRegion> buildPrimalRegions();
 
   friend SurfaceMesh generateSurface(const VoxelMesh &m);
