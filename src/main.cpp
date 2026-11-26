@@ -163,7 +163,7 @@ int main(int argc, char *argv[]) {
   for (PrimalRegion &pr : primalRegions) {
     for (Voxel &v : pr.voxels) {
       VoxelId id = mesh.getId(v);
-      // assert(id != NO_VOXEL);
+      assert(id != NO_VOXEL);
       if (id != NO_VOXEL)
         primalRegionIds[id] = curId;
     }

@@ -87,7 +87,7 @@ QuadId SurfaceMesh::addQuad(Voxel v, DualRegionId regionId, Axis normal,
                             IntegerSign normalSign) {
   std::array<GridVertex, 4> corners;
   GridVertex cur = {v.x(), v.y(), v.z()};
-  if (normal == POSITIVE)
+  if (normalSign == POSITIVE)
     cur[normal]++;
   Axis nextAxis = (normal + 1) % DIMENSION;
   Axis prevAxis = (normal + 2) % DIMENSION;

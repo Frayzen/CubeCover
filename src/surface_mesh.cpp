@@ -445,6 +445,7 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
   }
 
   // add missing internal surfaces
+  size_t i = 0;
   for (PrimalRegion &primalRegion : primalRegions) {
     for (Axis missingAxis = 0; missingAxis < DIMENSION; missingAxis++) {
       for (IntegerSign sign : {POSITIVE, NEGATIVE}) {
@@ -474,11 +475,15 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
         DualRegionId maxRegion = faceDualRegions[2];
         Voxel min = nodes[regionCorners[minRegion]];
         Voxel max = nodes[regionCorners[maxRegion]];
-        // TODO fix that
+
+        // Decide on which side of the face we are iterating depending on the
+        // normal
         if (sign == POSITIVE)
           min[missingAxis]--;
-        std::cout << "GOT " << min.transpose() << " AND " << max.transpose()
-                  << std::endl;
+        else
+          max[missingAxis]++;
+        // std::cout << "GOT " << min.transpose() << " AND " << max.transpose()
+        //           << " FOR " << i << " SIGN " << sign << std::endl;
         for (size_t i = min.x(); i < max.x(); i++) {
           for (size_t j = min.y(); j < max.y(); j++) {
             for (size_t k = min.z(); k < max.z(); k++) {
@@ -489,10 +494,10 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
             }
           }
         }
-
         primalSurfaceId = createdSurfaceId;
       }
     }
+    i++;
   }
 
   auto dim = m.voxels.dimensions();
@@ -516,6 +521,56 @@ std::vector<PrimalRegion> SurfaceMesh::buildPrimalRegions() {
       }
     }
   }
+
+  // Initialize the flooding queue with all boundary voxels.
+  std::queue<Voxel> queue;
+
+  for (PrimalRegionId prId = 0; prId < primalRegions.size(); prId++) {
+    for (const Voxel &v : primalRegions[prId].voxels) {
+      queue.push(v);
+    }
+  }
+
+  // Flood the remaining voxels.
+  while (!queue.empty()) {
+    Voxel v = queue.front();
+    queue.pop();
+
+    PrimalRegionId prId = voxelToPrimalRegion(v.x(), v.y(), v.z());
+
+    assert(prId != NO_PRIMAL_REGION);
+
+    for (const Voxel &neighbor : m.getNeighbours(v)) {
+      if (voxelToPrimalRegion(neighbor.x(), neighbor.y(), neighbor.z()) !=
+          NO_PRIMAL_REGION) {
+        continue;
+      }
+
+      // Count voxels belonging to the same primal region,
+      // including the current voxel.
+      int count = 1;
+
+      for (const Voxel &n : m.getNeighbours(neighbor)) {
+        if (voxelToPrimalRegion(n.x(), n.y(), n.z()) == prId) {
+          count++;
+        }
+      }
+
+      if (count >= 3) {
+        voxelToPrimalRegion(neighbor.x(), neighbor.y(), neighbor.z()) = prId;
+        primalRegions[prId].voxels.push_back(neighbor);
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  size_t amountColoredVoxel = 0;
+  for (PrimalRegion &pr : primalRegions)
+    amountColoredVoxel += pr.voxels.size();
+  assert(amountColoredVoxel == m.nbVoxel);
+
+  quadToAxisConstraint = colors;
+  return primalRegions;
 
   quadToAxisConstraint = colors;
   return primalRegions;
